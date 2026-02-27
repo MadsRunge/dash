@@ -4,12 +4,21 @@ import * as fs from 'fs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { AiProvider, SetupContextOptions, SpawnOptions, TaskContextMeta } from './AiProvider';
+import { OutputParser } from './OutputParser';
+import { GenericOutputParser } from './GenericOutputParser';
+import { PromptFormatter } from './PromptFormatter';
 
 const execFileAsync = promisify(execFile);
 
 export class CodexProvider implements AiProvider {
   readonly id = 'codex';
   private cachedPath: string | null = null;
+  private parser = new GenericOutputParser({
+    promptPattern: /(?:^|\n)(?:codex|>)>\s?$/m,
+    authPattern: /(please\s+login|api\s+key|unauthorized)/i,
+    awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b).*$/im,
+    errorPattern: /(error|failed|exception)/i,
+  });
 
   async getExecutablePath(): Promise<string> {
     if (this.cachedPath) return this.cachedPath;
@@ -47,25 +56,19 @@ export class CodexProvider implements AiProvider {
   getSpawnArgs(options: SpawnOptions): string[] {
     const args: string[] = [];
 
-    // Læs den gemte prompt fra .dash mappen
     try {
       const promptPath = path.join(options.cwd, '.dash', 'prompt.txt');
       if (fs.existsSync(promptPath)) {
         const promptContent = fs.readFileSync(promptPath, 'utf-8');
-        // Codex tager prompten direkte som et positionelt argument for at starte TUI'en med en opgave
         args.push(promptContent);
       }
     } catch {
-      // Ignorer hvis prompten ikke findes
+      // Ignore
     }
 
-    // Auto-approve tool usage (Yolo mode)
     if (options.autoApprove) {
       args.push('--approval-mode', 'full-auto');
     }
-
-    // Codex understøtter mig bekendt ikke en direkte `--resume` flag på samme måde som Claude/Gemini,
-    // men den samler ofte selv tråden op fra sin egen historik i mappen.
 
     return args;
   }
@@ -78,7 +81,6 @@ export class CodexProvider implements AiProvider {
       TERM_PROGRAM: 'dash',
     };
 
-    // Sikr at OpenAI API nøgler og proxy-indstillinger sendes med
     const authVars = [
       'OPENAI_API_KEY',
       'AZURE_OPENAI_API_KEY',
@@ -108,11 +110,7 @@ export class CodexProvider implements AiProvider {
         fs.mkdirSync(dashDir, { recursive: true });
       }
 
-      let content = options.prompt;
-      if (options.meta && options.meta.issueNumbers && options.meta.issueNumbers.length > 0) {
-        content += `\\n\\nLinked Issues: ${options.meta.issueNumbers.join(', ')}`;
-      }
-
+      const content = PromptFormatter.formatGuardedPrompt(options.prompt, options.meta);
       fs.writeFileSync(promptPath, content);
 
       if (options.meta) {
@@ -140,5 +138,9 @@ export class CodexProvider implements AiProvider {
 
   updateCommitAttribution(_cwd: string, _ptyId: string, _attributionSetting?: string): void {
     // Implementeres hvis Codex senere understøtter en custom attribution config
+  }
+
+  getOutputParser(): OutputParser {
+    return this.parser;
   }
 }

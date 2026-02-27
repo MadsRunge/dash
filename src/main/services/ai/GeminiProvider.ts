@@ -5,19 +5,24 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { AiProvider, SetupContextOptions, SpawnOptions, TaskContextMeta } from './AiProvider';
 import { OutputParser } from './OutputParser';
-import { GeminiOutputParser } from './GeminiOutputParser';
+import { GenericOutputParser } from './GenericOutputParser';
+import { PromptFormatter } from './PromptFormatter';
 
 const execFileAsync = promisify(execFile);
 
 export class GeminiProvider implements AiProvider {
   readonly id = 'gemini';
   private cachedPath: string | null = null;
-  private parser = new GeminiOutputParser();
+  private parser = new GenericOutputParser({
+    promptPattern: /(?:^|\n)(?:gemini|>)>\s?$/m,
+    authPattern: /(please\s+login|unauthorized|not\s+authenticated|sign\s+in)/i,
+    awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b|\bselect\b).*$/im,
+    errorPattern: /(error|failed|exception|traceback)/i,
+  });
 
   async getExecutablePath(): Promise<string> {
     if (this.cachedPath) return this.cachedPath;
 
-    // 1. Try `which gemini`
     try {
       const { stdout } = await execFileAsync('which', ['gemini']);
       const resolved = stdout.trim();
@@ -29,13 +34,12 @@ export class GeminiProvider implements AiProvider {
       // Not in PATH
     }
 
-    // 2. Direct probe common locations
     const home = os.homedir();
     const candidates = [
       path.join(home, '.local/bin/gemini'),
       '/opt/homebrew/bin/gemini',
       '/usr/local/bin/gemini',
-      path.join(home, 'go/bin/gemini'), // Common for Go-based CLIs
+      path.join(home, 'go/bin/gemini'),
     ];
     for (const candidate of candidates) {
       try {
@@ -53,7 +57,6 @@ export class GeminiProvider implements AiProvider {
   getSpawnArgs(options: SpawnOptions): string[] {
     const args: string[] = [];
 
-    // Read the saved prompt to inject it interactively
     try {
       const promptPath = path.join(options.cwd, '.dash', 'prompt.txt');
       if (fs.existsSync(promptPath)) {
@@ -64,12 +67,10 @@ export class GeminiProvider implements AiProvider {
       // Ignore
     }
 
-    // Auto-approve tool usage
     if (options.autoApprove) {
       args.push('-y');
     }
 
-    // Resume previous session if requested
     if (options.resume) {
       args.push('-r', 'latest');
     }
@@ -79,7 +80,7 @@ export class GeminiProvider implements AiProvider {
 
   getEnv(options: SpawnOptions): Record<string, string> {
     const env: Record<string, string> = {
-      ...process.env, // Pass full environment so things like GEMINI_API_KEY work automatically
+      ...process.env,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       TERM_PROGRAM: 'dash',
@@ -97,11 +98,7 @@ export class GeminiProvider implements AiProvider {
         fs.mkdirSync(dashDir, { recursive: true });
       }
 
-      let content = options.prompt;
-      if (options.meta && options.meta.issueNumbers && options.meta.issueNumbers.length > 0) {
-        content += `\\n\\nLinked Issues: ${options.meta.issueNumbers.join(', ')}`;
-      }
-
+      const content = PromptFormatter.formatGuardedPrompt(options.prompt, options.meta);
       fs.writeFileSync(promptPath, content);
 
       if (options.meta) {
@@ -128,8 +125,6 @@ export class GeminiProvider implements AiProvider {
   }
 
   updateCommitAttribution(_cwd: string, _ptyId: string, _attributionSetting?: string): void {
-    // Gemini doesn't use the same HTTP hook system as Claude.
-    // In a full implementation, we might rewrite a git hook or a config file here.
     console.log('[GeminiProvider] Attribution update not currently supported');
   }
 
