@@ -13,12 +13,6 @@ const execFileAsync = promisify(execFile);
 export class CodexProvider implements AiProvider {
   readonly id = 'codex';
   private cachedPath: string | null = null;
-  private parser = new GenericOutputParser({
-    promptPattern: /(?:^|\n)(?:codex|>)>\s?$/m,
-    authPattern: /(please\s+login|api\s+key|unauthorized)/i,
-    awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b).*$/im,
-    errorPattern: /(error|failed|exception)/i,
-  });
 
   async getExecutablePath(): Promise<string> {
     if (this.cachedPath) return this.cachedPath;
@@ -141,6 +135,11 @@ export class CodexProvider implements AiProvider {
   }
 
   getOutputParser(): OutputParser {
-    return this.parser;
+    return new GenericOutputParser({
+      promptPattern: /(?:^|\n)(?:codex|>)>\s?$/m,
+      authPattern: /(please\s+login|api\s+key|unauthorized)/i,
+      awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b).*$/im,
+      errorPattern: /(error|failed|exception)/i,
+    });
   }
 }

@@ -13,12 +13,6 @@ const execFileAsync = promisify(execFile);
 export class GeminiProvider implements AiProvider {
   readonly id = 'gemini';
   private cachedPath: string | null = null;
-  private parser = new GenericOutputParser({
-    promptPattern: /(?:^|\n)(?:gemini|>)>\s?$/m,
-    authPattern: /(please\s+login|unauthorized|not\s+authenticated|sign\s+in)/i,
-    awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b|\bselect\b).*$/im,
-    errorPattern: /(error|failed|exception|traceback)/i,
-  });
 
   async getExecutablePath(): Promise<string> {
     if (this.cachedPath) return this.cachedPath;
@@ -129,6 +123,11 @@ export class GeminiProvider implements AiProvider {
   }
 
   getOutputParser(): OutputParser {
-    return this.parser;
+    return new GenericOutputParser({
+      promptPattern: /(?:^|\n)(?:gemini|>)>\s?$/m,
+      authPattern: /(please\s+login|unauthorized|not\s+authenticated|sign\s+in)/i,
+      awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b|\bselect\b).*$/im,
+      errorPattern: /(error|failed|exception|traceback)/i,
+    });
   }
 }
