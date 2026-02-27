@@ -12,6 +12,7 @@ import type {
   CommitGraphData,
   CommitDetail,
   RemoteControlState,
+  ActivityState,
 } from '../shared/types';
 
 export interface ElectronAPI {
@@ -112,10 +113,8 @@ export interface ElectronAPI {
   ) => () => void;
 
   // Activity monitor
-  ptyGetAllActivity: () => Promise<IpcResponse<Record<string, 'busy' | 'idle' | 'waiting'>>>;
-  onPtyActivity: (
-    callback: (data: Record<string, 'busy' | 'idle' | 'waiting'>) => void,
-  ) => () => void;
+  ptyGetAllActivity: () => Promise<IpcResponse<Record<string, ActivityState>>>;
+  onPtyActivity: (callback: (data: Record<string, ActivityState>) => void) => () => void;
 
   // Remote control
   ptyRemoteControlEnable: (ptyId: string) => Promise<IpcResponse<void>>;

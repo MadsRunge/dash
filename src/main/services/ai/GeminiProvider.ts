@@ -4,12 +4,15 @@ import * as fs from 'fs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { AiProvider, SetupContextOptions, SpawnOptions, TaskContextMeta } from './AiProvider';
+import { OutputParser } from './OutputParser';
+import { GeminiOutputParser } from './GeminiOutputParser';
 
 const execFileAsync = promisify(execFile);
 
 export class GeminiProvider implements AiProvider {
   readonly id = 'gemini';
   private cachedPath: string | null = null;
+  private parser = new GeminiOutputParser();
 
   async getExecutablePath(): Promise<string> {
     if (this.cachedPath) return this.cachedPath;
@@ -128,5 +131,9 @@ export class GeminiProvider implements AiProvider {
     // Gemini doesn't use the same HTTP hook system as Claude.
     // In a full implementation, we might rewrite a git hook or a config file here.
     console.log('[GeminiProvider] Attribution update not currently supported');
+  }
+
+  getOutputParser(): OutputParser {
+    return this.parser;
   }
 }

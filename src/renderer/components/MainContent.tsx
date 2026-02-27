@@ -1,7 +1,7 @@
 import React from 'react';
 import { TerminalPane } from './TerminalPane';
 import { Terminal, FolderOpen, GitBranch, Globe } from 'lucide-react';
-import type { Project, Task, RemoteControlState } from '../../shared/types';
+import type { Project, Task, RemoteControlState, ActivityState } from '../../shared/types';
 
 /** Convert a git remote URL (SSH or HTTPS) to a GitHub issues base URL */
 function issueUrl(remote: string | null, num: number): string | null {
@@ -21,7 +21,7 @@ interface MainContentProps {
   sidebarCollapsed?: boolean;
   tasks?: Task[];
   activeTaskId?: string | null;
-  taskActivity?: Record<string, 'busy' | 'idle' | 'waiting'>;
+  taskActivity?: Record<string, ActivityState>;
   remoteControlStates?: Record<string, RemoteControlState>;
   onSelectTask?: (id: string) => void;
   onEnableRemoteControl?: (taskId: string) => void;

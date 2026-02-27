@@ -1,10 +1,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { WebContents } from 'electron';
+import type { ActivityState } from '../../shared/types';
 
 const execFileAsync = promisify(execFile);
-
-type ActivityState = 'busy' | 'idle' | 'waiting';
 
 interface PtyActivity {
   pid: number;
@@ -48,6 +47,37 @@ class ActivityMonitorImpl {
     if (!activity || activity.state === 'busy') return;
     activity.state = 'busy';
     this.emitAll();
+  }
+
+  /**
+   * Force a specific state and emit. Used by OutputParsers.
+   */
+  forceState(ptyId: string, state: ActivityState, reason?: string): void {
+    const activity = this.activities.get(ptyId);
+    if (!activity) return;
+    // Debounce ready state to prevent flicker
+    if (state === 'ready' && activity.state !== 'ready') {
+      setTimeout(() => {
+        const current = this.activities.get(ptyId);
+        if (current && current.state !== 'ready') {
+          current.state = state;
+          this.emitAll();
+        }
+      }, 200);
+      return;
+    }
+
+    // Latch error/auth_required
+    if (activity.state === 'error' || activity.state === 'auth_required') {
+      if (state !== 'booting' && state !== 'ready') {
+        return; // Only reset from these states if restarting
+      }
+    }
+
+    if (activity.state !== state) {
+      activity.state = state;
+      this.emitAll();
+    }
   }
 
   /**

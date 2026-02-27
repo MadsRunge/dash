@@ -24,6 +24,7 @@ import type {
   DiffResult,
   GithubIssue,
   RemoteControlState,
+  ActivityState,
 } from '../shared/types';
 import { loadKeybindings, saveKeybindings, matchesBinding } from './keybindings';
 import type { KeyBindingMap } from './keybindings';
@@ -96,7 +97,7 @@ export function App() {
   }, [commitAttribution]);
 
   // Activity state — keys are PTY IDs that have active sessions
-  const [taskActivity, setTaskActivity] = useState<Record<string, 'busy' | 'idle' | 'waiting'>>({});
+  const [taskActivity, setTaskActivity] = useState<Record<string, ActivityState>>({});
 
   // Remote control state
   const [remoteControlStates, setRemoteControlStates] = useState<

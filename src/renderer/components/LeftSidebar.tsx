@@ -14,7 +14,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
-import type { Project, Task, RemoteControlState } from '../../shared/types';
+import type { Project, Task, RemoteControlState, ActivityState } from '../../shared/types';
 import { IconButton } from './ui/IconButton';
 
 interface LeftSidebarProps {
@@ -34,7 +34,7 @@ interface LeftSidebarProps {
   onShowCommitGraph: (projectId: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  taskActivity: Record<string, 'busy' | 'idle' | 'waiting'>;
+  taskActivity: Record<string, ActivityState>;
   remoteControlStates?: Record<string, RemoteControlState>;
 }
 
@@ -85,11 +85,19 @@ export function LeftSidebar({
     });
   }
 
-  function projectActivity(projectId: string): 'busy' | 'idle' | 'waiting' | null {
+  function projectActivity(projectId: string): ActivityState | null {
     const tasks = (tasksByProject[projectId] || []).filter((t) => !t.archivedAt);
-    if (tasks.some((t) => taskActivity[t.id] === 'waiting')) return 'waiting';
-    if (tasks.some((t) => taskActivity[t.id] === 'busy')) return 'busy';
-    if (tasks.some((t) => taskActivity[t.id] === 'idle')) return 'idle';
+    if (tasks.some((t) => taskActivity[t.id] === 'error')) return 'error';
+    if (tasks.some((t) => taskActivity[t.id] === 'auth_required')) return 'auth_required';
+    if (
+      tasks.some((t) => taskActivity[t.id] === 'awaiting_input' || taskActivity[t.id] === 'waiting')
+    )
+      return 'awaiting_input';
+    if (tasks.some((t) => taskActivity[t.id] === 'streaming' || taskActivity[t.id] === 'busy'))
+      return 'streaming';
+    if (tasks.some((t) => taskActivity[t.id] === 'booting')) return 'booting';
+    if (tasks.some((t) => taskActivity[t.id] === 'ready' || taskActivity[t.id] === 'idle'))
+      return 'ready';
     return null;
   }
 
@@ -139,11 +147,13 @@ export function LeftSidebar({
                 {activity && (
                   <div
                     className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border-2 border-[hsl(var(--surface-1))] ${
-                      activity === 'waiting'
-                        ? 'bg-orange-500'
-                        : activity === 'busy'
-                          ? 'bg-amber-400 status-pulse'
-                          : 'bg-emerald-400'
+                      activity === 'error' || activity === 'auth_required'
+                        ? 'bg-red-500'
+                        : activity === 'awaiting_input' || activity === 'waiting'
+                          ? 'bg-orange-500'
+                          : activity === 'streaming' || activity === 'busy'
+                            ? 'bg-amber-400 status-pulse'
+                            : 'bg-emerald-400'
                     }`}
                   />
                 )}
@@ -321,12 +331,19 @@ export function LeftSidebar({
                             onClick={() => onSelectTask(project.id, task.id)}
                           >
                             {/* Status indicator */}
-                            {activity === 'waiting' ? (
+                            {activity === 'error' || activity === 'auth_required' ? (
+                              <div
+                                className="w-[6px] h-[6px] rounded-full bg-red-500 flex-shrink-0"
+                                title={activity}
+                              />
+                            ) : activity === 'awaiting_input' || activity === 'waiting' ? (
                               <div className="w-[6px] h-[6px] rounded-full bg-orange-500 flex-shrink-0" />
-                            ) : activity === 'busy' ? (
+                            ) : activity === 'streaming' || activity === 'busy' ? (
                               <div className="w-[6px] h-[6px] rounded-full bg-amber-400 status-pulse flex-shrink-0" />
-                            ) : activity === 'idle' ? (
+                            ) : activity === 'ready' || activity === 'idle' ? (
                               <div className="w-[6px] h-[6px] rounded-full bg-emerald-400 flex-shrink-0" />
+                            ) : activity === 'booting' ? (
+                              <div className="w-[6px] h-[6px] rounded-full bg-blue-400 flex-shrink-0" />
                             ) : null}
                             {remoteControlStates[task.id] && (
                               <Globe

@@ -1,3 +1,5 @@
+import { OutputParser } from './OutputParser';
+
 export interface SpawnOptions {
   id: string;
   cwd: string;
@@ -56,4 +58,9 @@ export interface AiProvider {
    * Handle dynamic commit attribution updates while a session is running.
    */
   updateCommitAttribution(cwd: string, ptyId: string, attributionSetting?: string): void;
+
+  /**
+   * Optional parser to infer state from raw PTY stream.
+   */
+  getOutputParser?(): OutputParser;
 }

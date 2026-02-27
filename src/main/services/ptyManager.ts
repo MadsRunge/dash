@@ -161,6 +161,20 @@ export async function startDirectPty(options: {
   proc.onData((data: string) => {
     bannerFilter(data);
     remoteControlService.onPtyData(options.id, data);
+
+    // Parse state events if provider has an output parser
+    if (provider.getOutputParser) {
+      const parser = provider.getOutputParser();
+      if (parser) {
+        const events = parser.ingest(data);
+        for (const ev of events) {
+          if (ev.type === 'state') {
+            activityMonitor.forceState(options.id, ev.state, ev.reason);
+          }
+          // Note: ev.type === 'meta' handling can be added here later if needed
+        }
+      }
+    }
   });
 
   proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {

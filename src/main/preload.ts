@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ActivityState } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // App
@@ -60,9 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Activity monitor
   ptyGetAllActivity: () => ipcRenderer.invoke('pty:activity:getAll'),
-  onPtyActivity: (callback: (data: Record<string, 'busy' | 'idle' | 'waiting'>) => void) => {
-    const handler = (_event: unknown, data: Record<string, 'busy' | 'idle' | 'waiting'>) =>
-      callback(data);
+  onPtyActivity: (callback: (data: Record<string, ActivityState>) => void) => {
+    const handler = (_event: unknown, data: Record<string, ActivityState>) => callback(data);
     ipcRenderer.on('pty:activity', handler);
     return () => {
       ipcRenderer.removeListener('pty:activity', handler);

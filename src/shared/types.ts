@@ -94,7 +94,24 @@ export interface BranchInfo {
   relativeDate: string; // "2 days ago"
 }
 
-// ── Git Types ────────────────────────────────────────────────
+// ── Activity Types ──────────────────────────────────────────
+
+export type ActivityState =
+  | 'booting'
+  | 'ready' // Prompt is available, ready for next command (formerly 'idle')
+  | 'streaming' // AI is generating a response (formerly 'busy')
+  | 'awaiting_input' // CLI asks user a question (e.g., y/n, continue) (formerly 'waiting')
+  | 'auth_required'
+  | 'error'
+  | 'idle' // Kept for backward compatibility with Claude hooks
+  | 'busy' // Kept for backward compatibility with Claude hooks
+  | 'waiting'; // Kept for backward compatibility with Claude hooks
+
+export interface ActivityMeta {
+  state: ActivityState;
+  reason?: string;
+  [key: string]: unknown;
+}
 
 export type FileChangeStatus =
   | 'modified'
