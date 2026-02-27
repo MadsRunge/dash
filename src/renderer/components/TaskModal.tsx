@@ -512,7 +512,10 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
               <span className="text-[12px] text-muted-foreground/60">AI:</span>
               <select
                 value={aiProvider}
-                onChange={(e) => setAiProvider(e.target.value)}
+                onChange={(e) => {
+                  setAiProvider(e.target.value);
+                  localStorage.setItem('defaultAiProvider', e.target.value);
+                }}
                 className="bg-accent/50 text-foreground/80 text-[12px] px-2 py-1 rounded border border-border/50 outline-none focus:border-primary/50 transition-colors"
               >
                 <option value="claude">Claude</option>

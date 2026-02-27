@@ -106,6 +106,9 @@ export class GeminiProvider implements AiProvider {
       }
     } catch (err) {
       console.error('[GeminiProvider] Failed to setup worktree:', err);
+      throw new Error(
+        `Failed to write task context: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

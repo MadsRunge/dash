@@ -11,9 +11,10 @@ import { ClaudeProvider } from './ai/ClaudeProvider';
 import { GeminiProvider } from './ai/GeminiProvider';
 import { CodexProvider } from './ai/CodexProvider';
 import { DatabaseService } from './DatabaseService';
+import type { IPty } from 'node-pty';
 
 interface PtyRecord {
-  proc: unknown; // IPty from node-pty
+  proc: IPty;
   cwd: string;
   isDirectSpawn: boolean;
   owner: WebContents | null;
