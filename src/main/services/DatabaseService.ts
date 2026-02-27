@@ -24,9 +24,7 @@ export class DatabaseService {
     return rows.map(this.mapProject);
   }
 
-  static saveProject(
-    data: Partial<Project> & { name: string; path: string },
-  ): Project {
+  static saveProject(data: Partial<Project> & { name: string; path: string }): Project {
     const db = getDb();
     const id = data.id || randomUUID();
     const now = new Date().toISOString();
@@ -68,8 +66,19 @@ export class DatabaseService {
 
   static getTasks(projectId: string): Task[] {
     const db = getDb();
-    const rows = db.select().from(tasks).where(eq(tasks.projectId, projectId)).orderBy(desc(tasks.createdAt)).all();
+    const rows = db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.projectId, projectId))
+      .orderBy(desc(tasks.createdAt))
+      .all();
     return rows.map(this.mapTask);
+  }
+
+  static getTask(id: string): Task | null {
+    const db = getDb();
+    const rows = db.select().from(tasks).where(eq(tasks.id, id)).all();
+    return rows.length > 0 ? this.mapTask(rows[0]) : null;
   }
 
   static saveTask(
@@ -88,6 +97,7 @@ export class DatabaseService {
         name: data.name,
         branch: data.branch,
         path: data.path,
+        aiProvider: data.aiProvider ?? 'claude',
         status: data.status ?? 'idle',
         useWorktree: data.useWorktree ?? true,
         autoApprove: data.autoApprove ?? false,
@@ -101,6 +111,7 @@ export class DatabaseService {
           name: data.name,
           branch: data.branch,
           path: data.path,
+          aiProvider: data.aiProvider ?? 'claude',
           status: data.status ?? 'idle',
           linkedIssues: linkedIssuesJson,
           updatedAt: now,
@@ -137,11 +148,7 @@ export class DatabaseService {
 
   static getConversations(taskId: string): Conversation[] {
     const db = getDb();
-    const rows = db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.taskId, taskId))
-      .all();
+    const rows = db.select().from(conversations).where(eq(conversations.taskId, taskId)).all();
     return rows.map(this.mapConversation);
   }
 
@@ -149,11 +156,7 @@ export class DatabaseService {
     const db = getDb();
 
     // Check if main conversation exists
-    const existing = db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.taskId, taskId))
-      .all();
+    const existing = db.select().from(conversations).where(eq(conversations.taskId, taskId)).all();
 
     const main = existing.find((c) => c.isMain);
     if (main) return this.mapConversation(main);
@@ -209,6 +212,7 @@ export class DatabaseService {
       name: row.name,
       branch: row.branch,
       path: row.path,
+      aiProvider: row.aiProvider,
       status: row.status,
       useWorktree: row.useWorktree ?? true,
       autoApprove: row.autoApprove ?? false,

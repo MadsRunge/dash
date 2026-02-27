@@ -28,6 +28,7 @@ export const tasks = sqliteTable(
     name: text('name').notNull(),
     branch: text('branch').notNull(),
     path: text('path').notNull(),
+    aiProvider: text('ai_provider').notNull().default('claude'),
     status: text('status').notNull().default('idle'),
     useWorktree: integer('use_worktree', { mode: 'boolean' }).default(true),
     autoApprove: integer('auto_approve', { mode: 'boolean' }).default(false),

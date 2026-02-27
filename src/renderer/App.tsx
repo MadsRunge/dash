@@ -624,6 +624,7 @@ export function App() {
     autoApprove: boolean,
     baseRef?: string,
     linkedIssues?: GithubIssue[],
+    aiProvider?: string,
   ) {
     const targetProjectId = taskModalProjectId || activeProjectId;
     const targetProject = projects.find((p) => p.id === targetProjectId);
@@ -667,6 +668,7 @@ export function App() {
       path: taskPath,
       useWorktree,
       autoApprove,
+      aiProvider: aiProvider ?? 'claude',
       linkedIssues: linkedIssueNumbers,
     });
 
@@ -685,6 +687,7 @@ export function App() {
 
         const prompt = `I'm working on the following GitHub issue(s):\n\n${issueBlocks.join('\n\n')}\n\nPlease help me implement a solution for this.`;
         window.electronAPI.ptyWriteTaskContext({
+          taskId,
           cwd: taskPath,
           prompt,
           meta: {

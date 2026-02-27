@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, GitBranch, Zap, ChevronDown, Loader2, AlertCircle, Search, Github, Check } from 'lucide-react';
+import {
+  X,
+  GitBranch,
+  Zap,
+  ChevronDown,
+  Loader2,
+  AlertCircle,
+  Search,
+  Github,
+  Check,
+} from 'lucide-react';
 import type { BranchInfo, GithubIssue } from '../../shared/types';
 
 interface TaskModalProps {
@@ -11,6 +21,7 @@ interface TaskModalProps {
     autoApprove: boolean,
     baseRef?: string,
     linkedIssues?: GithubIssue[],
+    aiProvider?: string,
   ) => void;
 }
 
@@ -18,6 +29,9 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
   const [name, setName] = useState('');
   const [useWorktree, setUseWorktree] = useState(true);
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem('yoloMode') === 'true');
+  const [aiProvider, setAiProvider] = useState(
+    () => localStorage.getItem('defaultAiProvider') || 'claude',
+  );
 
   // Branch selector state
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -155,6 +169,7 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
         autoApprove,
         baseRef,
         selectedIssues.length > 0 ? selectedIssues : undefined,
+        aiProvider,
       );
       onClose();
     }
@@ -278,9 +293,7 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
                         setBranchSearch('');
                         setDropdownOpen(true);
                       }}
-                      placeholder={
-                        branchLoading ? 'Fetching branches...' : 'Search branches...'
-                      }
+                      placeholder={branchLoading ? 'Fetching branches...' : 'Search branches...'}
                       disabled={branchLoading}
                       className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/30 outline-none disabled:opacity-50"
                     />
@@ -410,9 +423,7 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
                         </div>
                       ) : (
                         issueResults.map((issue) => {
-                          const isSelected = selectedIssues.some(
-                            (i) => i.number === issue.number,
-                          );
+                          const isSelected = selectedIssues.some((i) => i.number === issue.number);
                           return (
                             <button
                               key={issue.number}
@@ -432,7 +443,11 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
                                 }`}
                               >
                                 {isSelected && (
-                                  <Check size={10} strokeWidth={3} className="text-primary-foreground" />
+                                  <Check
+                                    size={10}
+                                    strokeWidth={3}
+                                    className="text-primary-foreground"
+                                  />
                                 )}
                               </span>
                               <div className="flex-1 min-w-0">
@@ -468,8 +483,9 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
             </div>
           )}
 
-          {/* Yolo mode toggle */}
-          <div className="mb-6">
+          {/* Settings Row (Yolo & AI) */}
+          <div className="mb-6 flex items-center justify-between">
+            {/* Yolo mode toggle */}
             <label className="flex items-center gap-3 cursor-pointer group">
               <div className="relative">
                 <input
@@ -490,6 +506,20 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
                 <span className="text-[11px] text-muted-foreground/40">skip permissions</span>
               </div>
             </label>
+
+            {/* AI Provider selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-muted-foreground/60">AI:</span>
+              <select
+                value={aiProvider}
+                onChange={(e) => setAiProvider(e.target.value)}
+                className="bg-accent/50 text-foreground/80 text-[12px] px-2 py-1 rounded border border-border/50 outline-none focus:border-primary/50 transition-colors"
+              >
+                <option value="claude">Claude</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+              </select>
+            </div>
           </div>
 
           {/* Actions */}

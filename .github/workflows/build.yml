@@ -32,14 +32,14 @@ jobs:
         run: pnpm build
 
       - name: Package
-        run: pnpm exec electron-builder --mac --arm64 --publish never
+        run: pnpm exec electron-builder --mac --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Dash-mac-arm64
+          name: Dash-mac-artifacts
           path: |
             release/*.dmg
             release/*.zip

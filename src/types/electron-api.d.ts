@@ -119,9 +119,7 @@ export interface ElectronAPI {
 
   // Remote control
   ptyRemoteControlEnable: (ptyId: string) => Promise<IpcResponse<void>>;
-  ptyRemoteControlGetAllStates: () => Promise<
-    IpcResponse<Record<string, RemoteControlState>>
-  >;
+  ptyRemoteControlGetAllStates: () => Promise<IpcResponse<Record<string, RemoteControlState>>>;
   onRemoteControlStateChanged: (
     callback: (data: { ptyId: string; state: RemoteControlState | null }) => void,
   ) => () => void;
@@ -136,6 +134,7 @@ export interface ElectronAPI {
 
   // Task context for SessionStart hook
   ptyWriteTaskContext: (args: {
+    taskId: string;
     cwd: string;
     prompt: string;
     meta?: { issueNumbers: number[]; gitRemote?: string };

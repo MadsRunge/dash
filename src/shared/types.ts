@@ -15,6 +15,7 @@ export interface Task {
   name: string;
   branch: string;
   path: string;
+  aiProvider: string;
   status: string;
   useWorktree: boolean;
   autoApprove: boolean;

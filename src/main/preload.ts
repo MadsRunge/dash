@@ -70,8 +70,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Remote control
-  ptyRemoteControlEnable: (ptyId: string) =>
-    ipcRenderer.invoke('pty:remoteControl:enable', ptyId),
+  ptyRemoteControlEnable: (ptyId: string) => ipcRenderer.invoke('pty:remoteControl:enable', ptyId),
   ptyRemoteControlGetAllStates: () => ipcRenderer.invoke('pty:remoteControl:getAllStates'),
   onRemoteControlStateChanged: (
     callback: (data: { ptyId: string; state: { url: string; active: boolean } | null }) => void,
@@ -96,7 +95,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ptyHasClaudeSession: (cwd: string) => ipcRenderer.invoke('pty:hasClaudeSession', cwd),
 
   // Task context for SessionStart hook
-  ptyWriteTaskContext: (args: { cwd: string; prompt: string }) =>
+  ptyWriteTaskContext: (args: { taskId: string; cwd: string; prompt: string }) =>
     ipcRenderer.invoke('pty:writeTaskContext', args),
 
   // App lifecycle

@@ -9,7 +9,6 @@ import {
   writePty,
   resizePty,
   killPty,
-  killByOwner,
   writeTaskContext,
   sendRemoteControl,
 } from '../services/ptyManager';
@@ -84,7 +83,7 @@ export function registerPtyIpc(): void {
 
   ipcMain.on('pty:snapshot:save', (_event, id: string, payload: unknown) => {
     try {
-      terminalSnapshotService.saveSnapshot(id, payload as any);
+      terminalSnapshotService.saveSnapshot(id, payload as unknown as any);
     } catch {
       // Best effort — fire-and-forget from beforeunload
     }
@@ -114,13 +113,14 @@ export function registerPtyIpc(): void {
     (
       _event,
       args: {
+        taskId: string;
         cwd: string;
         prompt: string;
         meta?: { issueNumbers: number[]; gitRemote?: string };
       },
     ) => {
       try {
-        writeTaskContext(args.cwd, args.prompt, args.meta);
+        writeTaskContext(args.taskId, args.cwd, args.prompt, args.meta);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };

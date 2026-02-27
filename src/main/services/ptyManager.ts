@@ -1,35 +1,55 @@
-import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { type WebContents, app } from 'electron';
 import { activityMonitor } from './ActivityMonitor';
 import { hookServer } from './HookServer';
+import { createBannerFilter } from './bannerFilter';
+import { remoteControlService } from './remoteControlService';
 
-const execFileAsync = promisify(execFile);
+import { AiProvider } from './ai/AiProvider';
+import { ClaudeProvider } from './ai/ClaudeProvider';
+import { GeminiProvider } from './ai/GeminiProvider';
+import { CodexProvider } from './ai/CodexProvider';
+import { DatabaseService } from './DatabaseService';
 
 interface PtyRecord {
-  proc: any; // IPty from node-pty
+  proc: unknown; // IPty from node-pty
   cwd: string;
   isDirectSpawn: boolean;
   owner: WebContents | null;
+  provider?: AiProvider;
 }
 
 const ptys = new Map<string, PtyRecord>();
 
-const DASH_DEFAULT_ATTRIBUTION =
-  '\n\nCo-Authored-By: Claude <noreply@anthropic.com> via Dash <dash@syv.ai>';
-
-// Commit attribution setting: undefined = "default" (use Dash attribution),
-// '' = "none" (suppress attribution), any other string = custom text.
 let commitAttributionSetting: string | undefined = undefined;
+
+// Provider registry
+const providers: Record<string, AiProvider> = {
+  claude: new ClaudeProvider(),
+  gemini: new GeminiProvider(),
+  codex: new CodexProvider(),
+};
+
+function getProviderForTask(taskId: string): AiProvider {
+  try {
+    const task = DatabaseService.getTask(taskId);
+    if (task && task.aiProvider && providers[task.aiProvider]) {
+      return providers[task.aiProvider];
+    }
+  } catch {
+    // Fallback if task not found
+  }
+  return providers.claude;
+}
 
 export function setCommitAttribution(value: string | undefined): void {
   commitAttributionSetting = value;
-  // Re-write settings.local.json for all active PTYs so the change takes effect immediately
+  // Re-write settings for all active PTYs
   for (const [id, rec] of ptys) {
-    writeHookSettings(rec.cwd, id);
+    if (rec.provider) {
+      rec.provider.updateCommitAttribution(rec.cwd, id, commitAttributionSetting);
+    }
   }
 }
 
@@ -46,240 +66,28 @@ function getPty() {
   return ptyModule!;
 }
 
-import { createBannerFilter } from './bannerFilter';
-import { remoteControlService } from './remoteControlService';
-
-// Cached Claude CLI path
-let cachedClaudePath: string | null = null;
-
-async function findClaudePath(): Promise<string | null> {
-  if (cachedClaudePath) return cachedClaudePath;
-
-  // 1. Check the startup-detected cache from main.ts
-  try {
-    const { claudeCliCache } = await import('../main');
-    if (claudeCliCache.path) {
-      cachedClaudePath = claudeCliCache.path;
-      return cachedClaudePath;
-    }
-  } catch {
-    // Best effort
-  }
-
-  // 2. Try `which claude` (works when PATH is correct)
-  try {
-    const { stdout } = await execFileAsync('which', ['claude']);
-    const resolved = stdout.trim();
-    if (resolved) {
-      cachedClaudePath = resolved;
-      return cachedClaudePath;
-    }
-  } catch {
-    // Not in PATH
-  }
-
-  // 3. Direct probe common install locations
-  const home = os.homedir();
-  const candidates = [
-    path.join(home, '.local/bin/claude'),
-    '/opt/homebrew/bin/claude',
-    '/usr/local/bin/claude',
-  ];
-  for (const candidate of candidates) {
-    try {
-      await fs.promises.access(candidate, fs.constants.X_OK);
-      cachedClaudePath = candidate;
-      return cachedClaudePath;
-    } catch {
-      // Not found here
-    }
-  }
-
-  console.error('[findClaudePath] Claude CLI not found in any known location');
-  return null;
-}
-
 /**
- * Build minimal environment for direct CLI spawn (no shell config overhead).
- */
-function buildDirectEnv(isDark: boolean): Record<string, string> {
-  const env: Record<string, string> = {
-    TERM: 'xterm-256color',
-    COLORTERM: 'truecolor',
-    TERM_PROGRAM: 'dash',
-    HOME: os.homedir(),
-    USER: os.userInfo().username,
-    PATH: process.env.PATH || '',
-    // Tell CLI apps about terminal background (rxvt convention)
-    // Format: "fg;bg" where higher values = lighter colors
-    COLORFGBG: isDark ? '15;0' : '0;15',
-  };
-
-  // Auth passthrough
-  const authVars = [
-    'ANTHROPIC_API_KEY',
-    'GH_TOKEN',
-    'GITHUB_TOKEN',
-    'HTTP_PROXY',
-    'HTTPS_PROXY',
-    'NO_PROXY',
-    'http_proxy',
-    'https_proxy',
-    'no_proxy',
-  ];
-
-  for (const key of authVars) {
-    if (process.env[key]) {
-      env[key] = process.env[key]!;
-    }
-  }
-
-  return env;
-}
-
-/**
- * Write .claude/task-context.json with issue context for the SessionStart hook.
- * Called from IPC during task creation, before Claude spawns.
+ * Write task context before spawning.
+ * Called from IPC during task creation.
  */
 export function writeTaskContext(
+  taskId: string,
   cwd: string,
   prompt: string,
   meta?: { issueNumbers: number[]; gitRemote?: string },
 ): void {
-  const claudeDir = path.join(cwd, '.claude');
-  const contextPath = path.join(claudeDir, 'task-context.json');
-
-  const payload: Record<string, unknown> = {
-    hookSpecificOutput: {
-      hookEventName: 'SessionStart',
-      additionalContext: prompt,
-    },
-  };
-  if (meta) {
-    payload.meta = meta;
-  }
-
-  try {
-    if (!fs.existsSync(claudeDir)) {
-      fs.mkdirSync(claudeDir, { recursive: true });
-    }
-    fs.writeFileSync(contextPath, JSON.stringify(payload, null, 2) + '\n');
-  } catch (err) {
-    console.error('[writeTaskContext] Failed:', err);
-  }
+  const provider = getProviderForTask(taskId);
+  provider.setupWorktree({
+    cwd,
+    id: taskId,
+    prompt,
+    meta,
+    commitAttributionSetting,
+  });
 }
 
 /**
- * Write .claude/settings.local.json with Stop, UserPromptSubmit, Notification,
- * and (optionally) SessionStart hooks.
- *
- * Notification hooks fire when Claude Code sends notifications. Each entry can
- * include a `matcher` to filter by notification_type:
- *   - permission_prompt  — Claude needs the user to approve a tool use
- *   - idle_prompt        — Claude is idle / waiting for user input
- *   - auth_success       — authentication completed successfully
- *   - elicitation_dialog — Claude is presenting a dialog for user input
- * Omit the matcher to run the hook for all notification types.
- *
- * The hook receives JSON on stdin with these fields:
- *   session_id, transcript_path, cwd, permission_mode, hook_event_name,
- *   message (notification text), title (optional), notification_type.
- *
- * Notification hooks cannot block or modify notifications but may return
- * { additionalContext: string } to inject context into the conversation.
- */
-function writeHookSettings(cwd: string, ptyId: string): void {
-  const port = hookServer.port;
-  if (port === 0) return;
-
-  const claudeDir = path.join(cwd, '.claude');
-  const settingsPath = path.join(claudeDir, 'settings.local.json');
-  const curlBase = `curl -s --connect-timeout 2 http://127.0.0.1:${port}`;
-
-  const hookSettings: Record<string, unknown[]> = {
-    Stop: [{ hooks: [{ type: 'command', command: `${curlBase}/hook/stop?ptyId=${ptyId}` }] }],
-    UserPromptSubmit: [
-      { hooks: [{ type: 'command', command: `${curlBase}/hook/busy?ptyId=${ptyId}` }] },
-    ],
-    Notification: [
-      {
-        matcher: 'permission_prompt',
-        hooks: [
-          {
-            type: 'command',
-            command: `curl -s --connect-timeout 2 -X POST -H "Content-Type: application/json" -d @- http://127.0.0.1:${port}/hook/notification?ptyId=${ptyId}`,
-          },
-        ],
-      },
-      {
-        matcher: 'idle_prompt',
-        hooks: [
-          {
-            type: 'command',
-            command: `curl -s --connect-timeout 2 -X POST -H "Content-Type: application/json" -d @- http://127.0.0.1:${port}/hook/notification?ptyId=${ptyId}`,
-          },
-        ],
-      },
-    ],
-  };
-
-  // Auto-detect task-context.json and inject SessionStart hook if it exists
-  const contextPath = path.join(claudeDir, 'task-context.json');
-  if (fs.existsSync(contextPath)) {
-    hookSettings.SessionStart = [
-      {
-        matcher: 'startup',
-        hooks: [
-          {
-            type: 'command',
-            command: `cat "${contextPath}"`,
-          },
-        ],
-      },
-    ];
-  }
-
-  try {
-    if (!fs.existsSync(claudeDir)) {
-      fs.mkdirSync(claudeDir, { recursive: true });
-    }
-
-    // Merge with existing settings to preserve non-hook config
-    let existing: Record<string, unknown> = {};
-    if (fs.existsSync(settingsPath)) {
-      try {
-        existing = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      } catch {
-        // Corrupted — overwrite
-      }
-    }
-
-    const merged: Record<string, unknown> = {
-      ...existing,
-      hooks: {
-        ...(existing.hooks && typeof existing.hooks === 'object'
-          ? (existing.hooks as Record<string, unknown>)
-          : {}),
-        ...hookSettings,
-      },
-    };
-
-    // Commit attribution: undefined = Dash default, '' = suppress, other = custom.
-    const effectiveAttribution =
-      commitAttributionSetting === undefined ? DASH_DEFAULT_ATTRIBUTION : commitAttributionSetting;
-    merged.attribution = { commit: effectiveAttribution };
-
-    fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
-    console.error(
-      `[writeHookSettings] Wrote ${settingsPath} (attribution: ${commitAttributionSetting === undefined ? 'default' : commitAttributionSetting || 'none'})`,
-    );
-  } catch (err) {
-    console.error('[writeHookSettings] Failed:', err);
-  }
-}
-
-/**
- * Spawn Claude CLI directly (fast path, bypasses shell config).
+ * Spawn AI CLI directly.
  */
 export async function startDirectPty(options: {
   id: string;
@@ -296,10 +104,8 @@ export async function startDirectPty(options: {
   hasTaskContext: boolean;
   taskContextMeta: { issueNumbers: number[]; gitRemote?: string } | null;
 }> {
-  // Re-attach to existing PTY (e.g., after renderer reload)
   const existing = ptys.get(options.id);
   if (existing && !existing.isDirectSpawn) {
-    // Shell PTY exists for this ID, but we need Claude — kill it first
     try {
       existing.proc.kill();
     } catch {
@@ -312,24 +118,21 @@ export async function startDirectPty(options: {
   }
 
   const pty = getPty();
-  const claudePath = await findClaudePath();
+  const provider = getProviderForTask(options.id);
 
-  if (!claudePath) {
-    throw new Error('Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code');
-  }
+  const execPath = await provider.getExecutablePath();
+  const args = provider.getSpawnArgs(options);
+  const env = provider.getEnv(options);
 
-  const args: string[] = [];
-  if (options.resume) {
-    args.push('-c', '-r');
-  }
-  if (options.autoApprove) {
-    args.push('--dangerously-skip-permissions');
-  }
-  const env = buildDirectEnv(options.isDark ?? true);
+  // Apply hooks and settings
+  provider.setupWorktree({
+    cwd: options.cwd,
+    id: options.id,
+    prompt: '', // No prompt here, it was done in writeTaskContext
+    commitAttributionSetting,
+  });
 
-  writeHookSettings(options.cwd, options.id);
-
-  const proc = pty.spawn(claudePath, args, {
+  const proc = pty.spawn(execPath, args, {
     name: 'xterm-256color',
     cols: options.cols,
     rows: options.rows,
@@ -342,12 +145,12 @@ export async function startDirectPty(options: {
     cwd: options.cwd,
     isDirectSpawn: true,
     owner: options.sender || null,
+    provider,
   };
 
   ptys.set(options.id, record);
   activityMonitor.register(options.id, proc.pid, true);
 
-  // Forward output to renderer, replacing the Claude logo with "7" art
   const bannerFilter = createBannerFilter((filtered: string) => {
     if (record.owner && !record.owner.isDestroyed()) {
       record.owner.send(`pty:data:${options.id}`, filtered);
@@ -360,7 +163,6 @@ export async function startDirectPty(options: {
   });
 
   proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
-    // Skip if this PTY was replaced by a new spawn (kill+restart on reattach)
     if (ptys.get(options.id) !== record) return;
     activityMonitor.unregister(options.id);
     remoteControlService.unregister(options.id);
@@ -370,16 +172,8 @@ export async function startDirectPty(options: {
     ptys.delete(options.id);
   });
 
-  const contextPath = path.join(options.cwd, '.claude', 'task-context.json');
-  let taskContextMeta: { issueNumbers: number[]; gitRemote?: string } | null = null;
-  try {
-    if (fs.existsSync(contextPath)) {
-      const parsed = JSON.parse(fs.readFileSync(contextPath, 'utf-8'));
-      taskContextMeta = parsed.meta ?? null;
-    }
-  } catch {
-    // Best effort
-  }
+  const taskContextMeta = provider.readTaskContextMeta(options.cwd);
+
   return {
     reattached: false,
     isDirectSpawn: true,
@@ -392,7 +186,7 @@ export async function startDirectPty(options: {
 // Custom zsh prompt via ZDOTDIR
 // ---------------------------------------------------------------------------
 
-const SHELL_ZSHENV = `\
+const SHELL_ZSHENV = `\\
 # Save our ZDOTDIR so .zshrc can find prompt.zsh
 export __DASH_ZDOTDIR="\${ZDOTDIR}"
 # Source user's .zshenv from HOME
@@ -401,11 +195,11 @@ export __DASH_ZDOTDIR="\${ZDOTDIR}"
 ZDOTDIR="\${__DASH_ZDOTDIR}"
 `;
 
-const SHELL_ZPROFILE = `\
+const SHELL_ZPROFILE = `\\
 [[ -f "$HOME/.zprofile" ]] && source "$HOME/.zprofile"
 `;
 
-const SHELL_ZSHRC = `\
+const SHELL_ZSHRC = `\\
 # Restore ZDOTDIR to HOME so user config loads normally
 ZDOTDIR="$HOME"
 [[ -f "$HOME/.zshrc" ]] && source "$HOME/.zshrc"
@@ -413,11 +207,11 @@ ZDOTDIR="$HOME"
 source "\${__DASH_ZDOTDIR}/prompt.zsh"
 `;
 
-const SHELL_ZLOGIN = `\
+const SHELL_ZLOGIN = `\\
 [[ -f "$HOME/.zlogin" ]] && source "$HOME/.zlogin"
 `;
 
-const SHELL_PROMPT = `\
+const SHELL_PROMPT = `\\
 # Dash badge-style prompt — uses ANSI 16 colors (themed by xterm.js)
 autoload -Uz vcs_info add-zsh-hook
 
@@ -498,7 +292,6 @@ export async function startPty(options: {
   rows: number;
   sender?: WebContents;
 }): Promise<{ reattached: boolean; isDirectSpawn: boolean }> {
-  // Re-attach to existing PTY (e.g., after renderer reload)
   const existing = ptys.get(options.id);
   if (existing) {
     existing.owner = options.sender || null;
@@ -508,17 +301,13 @@ export async function startPty(options: {
   const pty = getPty();
 
   const shell = process.env.SHELL || '/bin/bash';
-  const args = ['-il']; // Login + interactive
+  const args = ['-il'];
 
-  // Clean environment for shell
   const env = { ...process.env };
-  // Remove Electron packaging artifacts
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ATTACH_CONSOLE;
-  // Enable macOS zsh OSC 7 cwd reporting (sources /etc/zshrc_Apple_Terminal)
   env.TERM_PROGRAM = 'Apple_Terminal';
 
-  // Inject custom prompt for zsh via ZDOTDIR
   if (shell.endsWith('/zsh') || shell === 'zsh') {
     env.ZDOTDIR = ensureShellConfig();
   }
@@ -548,7 +337,6 @@ export async function startPty(options: {
   });
 
   proc.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
-    // Skip if this PTY was replaced by a new spawn (kill+restart on reattach)
     if (ptys.get(options.id) !== record) return;
     activityMonitor.unregister(options.id);
     if (record.owner && !record.owner.isDestroyed()) {
@@ -561,19 +349,14 @@ export async function startPty(options: {
 }
 
 /**
- * Enable remote control for a PTY by sending `/rc` and watching for the URL.
+ * Enable remote control for a PTY.
  */
 export function sendRemoteControl(id: string): void {
   remoteControlService.startWatching(id);
-  // Write command text first, then send Enter separately so Claude Code's
-  // input handler processes the keystroke as a distinct event.
   writePty(id, '/rc');
-  setTimeout(() => writePty(id, '\r'), 100);
+  setTimeout(() => writePty(id, '\\r'), 100);
 }
 
-/**
- * Send data to a PTY.
- */
 export function writePty(id: string, data: string): void {
   const record = ptys.get(id);
   if (record) {
@@ -581,57 +364,43 @@ export function writePty(id: string, data: string): void {
   }
 }
 
-/**
- * Resize a PTY.
- */
 export function resizePty(id: string, cols: number, rows: number): void {
   const record = ptys.get(id);
   if (record) {
     try {
       record.proc.resize(cols, rows);
-    } catch {
-      // EBADF can happen during transitions
+    } catch (_err) {
+      // Ignore
     }
   }
 }
 
-/**
- * Kill a specific PTY.
- */
 export function killPty(id: string): void {
   const record = ptys.get(id);
   if (record) {
-    // Delete first so the guarded onExit handler becomes a no-op
     ptys.delete(id);
     activityMonitor.unregister(id);
     remoteControlService.unregister(id);
     try {
       record.proc.kill();
-    } catch {
-      // Already dead
+    } catch (_err) {
+      // Ignore
     }
   }
 }
 
-/**
- * Kill all PTYs (on app quit).
- */
 export function killAll(): void {
   for (const [, record] of ptys) {
     try {
       record.proc.kill();
-    } catch {
-      // Already dead
+    } catch (_err) {
+      // Ignore
     }
   }
   ptys.clear();
-  // Bulk cleanup — don't rely on onExit during shutdown
   activityMonitor.stop();
 }
 
-/**
- * Kill all PTYs owned by a specific WebContents (on window close).
- */
 export function killByOwner(owner: WebContents): void {
   for (const [id, record] of ptys) {
     if (record.owner === owner) {

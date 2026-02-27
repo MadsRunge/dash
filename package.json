@@ -37,13 +37,15 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ],
@@ -93,6 +95,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "concurrently": "^8.2.0",
+    "drizzle-kit": "^0.31.9",
     "electron": "^30.5.1",
     "electron-builder": "^24.13.0",
     "eslint": "^8.57.0",
