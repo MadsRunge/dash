@@ -1,41 +1,25 @@
-# Implement CLI Output Parser Strategy
+# Hardening the AI Orchestrator Layer
 
 ## Goal
 
-Implement the "Controller Pattern" described in `docs/CLI_PARSER_STRATEGY.md` to accurately detect the activity state (booting, ready, streaming, awaiting_input, auth_required, error) of CLI tools that lack HTTP hooks (like Gemini and Codex).
+Implement prompt guarding, state hysteresis (debounce/stability), and config-driven parsing based on architectural review.
 
 ## Plan
 
-### Step 1: Define the Interfaces and Helpers
+### Step 1: Prompt Guard & Context Formatting
 
-- [x] Create `src/main/services/ai/OutputParser.ts` defining `OutputParser`, `ProviderState`, and `OutputEvent`.
-- [x] Add the `stripAnsi` and `normalizePtyOutput` helper functions to this file.
-- [x] Update `AiProvider.ts` to include `getOutputParser?(): OutputParser`.
+- [x] Create a central `PromptFormatter` utility (e.g., in `src/main/services/ai/PromptFormatter.ts`).
+- [x] Implement a method that wraps the user prompt and linked issues inside a strict `CONTEXT (read-only reference)` block.
+- [x] Update `GeminiProvider` and `CodexProvider` to use this formatter when writing `prompt.txt`.
 
-### Step 2: Implement the GeminiParser
+### Step 2: Config-Driven Generic Parser (DSL)
 
-- [x] Create `src/main/services/ai/GeminiOutputParser.ts` implementing `OutputParser`.
-- [x] Use a rolling buffer (clamped to ~8000 chars) and the regex patterns suggested in the strategy (Auth, Error, Awaiting, Ready prompt).
-- [x] Update `GeminiProvider.ts` to instantiate and return this parser.
+- [x] Create `GenericOutputParser.ts` that accepts a regex config (`promptPattern`, `authPattern`, `errorPattern`, etc.).
+- [x] Refactor `GeminiOutputParser` to be an instance of `GenericOutputParser` initialized with Gemini's specific patterns.
+- [x] Instantiate `GenericOutputParser` for `CodexProvider` with Codex-specific (or dummy) patterns.
 
-### Step 3: Wire into `ptyManager.ts`
+### Step 3: State Hysteresis (Activity Monitor)
 
-- [x] Modify the `proc.onData` handler in `startDirectPty` to feed chunks to `provider.getOutputParser()?.ingest(chunk)`.
-- [x] Loop over resulting `OutputEvent`s.
-- [x] For state events, update the `activityMonitor` via `activityMonitor.forceState(options.id, ev.state, ev.reason)`.
-
-### Step 4: Update ActivityMonitor
-
-- [x] Update `ActivityMonitor.ts` to support the new fine-grained states (booting, ready, streaming, awaiting_input, auth_required, error).
-- [x] Implement debouncing for the 'ready' state to prevent UI flicker from spinners.
-- [x] Add `forceState` method if it doesn't already exist to handle these explicit event updates.
-- [x] Ensure IPC events carry the reason text.
-
-### Step 5: Update the UI (Renderer)
-
-- [x] Update `src/renderer/components/LeftSidebar.tsx` or where activity indicators are drawn to handle the new states (e.g., specific colors for auth_required or error).
-
-## Verification
-
-- Test that creating a Gemini task shows 'booting', transitions to 'streaming' when output starts, and settles at 'ready' when the `> ` prompt appears.
-- Intentionally trigger an error or auth prompt to verify those states are latched.
+- [x] Review `ActivityMonitor.ts` `forceState` implementation.
+- [x] Ensure `setTimeout` logic for `ready` transitions correctly implements hysteresis (preventing bouncing between `streaming` and `ready`).
+- [x] Ensure `STABLE_STATES` (error, auth_required) lock the state permanently until a specific reset is called.

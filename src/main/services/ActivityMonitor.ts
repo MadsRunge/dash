@@ -55,26 +55,28 @@ class ActivityMonitorImpl {
   forceState(ptyId: string, state: ActivityState, reason?: string): void {
     const activity = this.activities.get(ptyId);
     if (!activity) return;
+
+    const STABLE_STATES: ActivityState[] = ['auth_required', 'error'];
+    const currentState = activity.state;
+
+    // Latch stable states unless explicitly booting
+    if (STABLE_STATES.includes(currentState) && state !== 'booting') {
+      return;
+    }
+
     // Debounce ready state to prevent flicker
-    if (state === 'ready' && activity.state !== 'ready') {
+    if (state === 'ready') {
       setTimeout(() => {
         const current = this.activities.get(ptyId);
-        if (current && current.state !== 'ready') {
-          current.state = state;
+        if (current && current.state !== 'streaming') {
+          current.state = 'ready';
           this.emitAll();
         }
       }, 200);
       return;
     }
 
-    // Latch error/auth_required
-    if (activity.state === 'error' || activity.state === 'auth_required') {
-      if (state !== 'booting' && state !== 'ready') {
-        return; // Only reset from these states if restarting
-      }
-    }
-
-    if (activity.state !== state) {
+    if (currentState !== state) {
       activity.state = state;
       this.emitAll();
     }
