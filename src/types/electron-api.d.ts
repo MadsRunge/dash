@@ -115,6 +115,7 @@ export interface ElectronAPI {
 
   // Activity monitor
   ptyGetAllActivity: () => Promise<IpcResponse<Record<string, ActivityState>>>;
+  ptySetIdle: (ptyId: string) => Promise<IpcResponse<void>>;
   onPtyActivity: (callback: (data: Record<string, ActivityState>) => void) => () => void;
 
   // Remote control

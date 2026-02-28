@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TerminalPane } from './TerminalPane';
-import { Terminal, FolderOpen, GitBranch, Globe, GitPullRequest } from 'lucide-react';
+import { Terminal, FolderOpen, GitBranch, Globe, GitPullRequest, PauseCircle } from 'lucide-react';
 import { CreatePRModal } from './CreatePRModal';
 import type { Project, Task, RemoteControlState, ActivityState } from '../../shared/types';
 
@@ -202,6 +202,17 @@ export function MainContent({
               <Globe size={14} strokeWidth={1.8} />
             </button>
           )}
+          {activeTask.aiProvider !== 'claude' &&
+            taskActivity[activeTask.id] &&
+            taskActivity[activeTask.id] !== 'idle' && (
+              <button
+                onClick={() => window.electronAPI.ptySetIdle(activeTask.id)}
+                className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/60 transition-colors"
+                title="Mark as idle (task paused or done)"
+              >
+                <PauseCircle size={14} strokeWidth={1.8} />
+              </button>
+            )}
 
           {ghAvailable &&
             isAhead &&

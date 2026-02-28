@@ -133,6 +133,11 @@ export function registerPtyIpc(): void {
     return { success: true, data: activityMonitor.getAll() };
   });
 
+  ipcMain.handle('pty:activity:setIdle', (_event, ptyId: string) => {
+    activityMonitor.setIdle(ptyId);
+    return { success: true };
+  });
+
   // Remote control
   ipcMain.handle('pty:remoteControl:enable', (_event, ptyId: string) => {
     try {

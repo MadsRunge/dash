@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Activity monitor
   ptyGetAllActivity: () => ipcRenderer.invoke('pty:activity:getAll'),
+  ptySetIdle: (ptyId: string) => ipcRenderer.invoke('pty:activity:setIdle', ptyId),
   onPtyActivity: (callback: (data: Record<string, ActivityState>) => void) => {
     const handler = (_event: unknown, data: Record<string, ActivityState>) => callback(data);
     ipcRenderer.on('pty:activity', handler);
