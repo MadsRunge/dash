@@ -53,7 +53,7 @@ export function MainContent({
 
       // Check ahead status
       const statusRes = await window.electronAPI.gitGetStatus(activeTask.path);
-      if (statusRes.success) {
+      if (statusRes.success && statusRes.data) {
         setIsAhead(statusRes.data.ahead > 0);
       }
     }
@@ -203,15 +203,18 @@ export function MainContent({
             </button>
           )}
 
-          {ghAvailable && isAhead && activeTask.branch !== 'main' && activeTask.branch !== 'master' && (
-            <button
-              onClick={() => setShowCreatePR(true)}
-              className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium animate-in fade-in zoom-in-95 duration-300"
-            >
-              <GitPullRequest size={12} strokeWidth={2} />
-              <span>Create PR</span>
-            </button>
-          )}
+          {ghAvailable &&
+            isAhead &&
+            activeTask.branch !== 'main' &&
+            activeTask.branch !== 'master' && (
+              <button
+                onClick={() => setShowCreatePR(true)}
+                className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium animate-in fade-in zoom-in-95 duration-300"
+              >
+                <GitPullRequest size={12} strokeWidth={2} />
+                <span>Create PR</span>
+              </button>
+            )}
         </>
       )}
     </div>

@@ -30,17 +30,17 @@ export function CreatePRModal({ task, project, onClose }: CreatePRModalProps) {
         setLoading(true);
         // Get default branch
         const branchRes = await window.electronAPI.githubGetDefaultBranch(task.path);
-        if (branchRes.success) {
+        if (branchRes.success && branchRes.data) {
           setBaseBranch(branchRes.data);
         }
 
         // Get commits
         const commitsRes = await window.electronAPI.githubGetPrCommits(
           task.path,
-          branchRes.data || 'main',
-          task.branch
+          branchRes.data ?? 'main',
+          task.branch ?? '',
         );
-        if (commitsRes.success) {
+        if (commitsRes.success && commitsRes.data) {
           setCommits(commitsRes.data);
         } else {
           setError(commitsRes.error || 'Failed to load commits');
@@ -52,7 +52,6 @@ export function CreatePRModal({ task, project, onClose }: CreatePRModalProps) {
           desc += task.linkedIssues.map((num) => `Closes #${num}`).join('\n') + '\n\n';
         }
         setDescription(desc);
-
       } catch (err) {
         setError(String(err));
       } finally {
@@ -76,7 +75,7 @@ export function CreatePRModal({ task, project, onClose }: CreatePRModalProps) {
         base: baseBranch,
       });
 
-      if (res.success) {
+      if (res.success && res.data) {
         window.electronAPI.openExternal(res.data);
         onClose();
       } else {
@@ -191,7 +190,10 @@ export function CreatePRModal({ task, project, onClose }: CreatePRModalProps) {
                   <div className="rounded-lg border border-border/60 overflow-hidden divide-y divide-border/40 bg-surface-1">
                     {commits.map((commit) => (
                       <div key={commit.hash} className="px-3 py-2 flex items-start gap-2.5">
-                        <CheckCircle2 size={12} className="text-green-500/60 mt-0.5 flex-shrink-0" />
+                        <CheckCircle2
+                          size={12}
+                          className="text-green-500/60 mt-0.5 flex-shrink-0"
+                        />
                         <div className="min-w-0">
                           <div className="text-[12px] text-foreground font-medium truncate leading-tight">
                             {commit.subject}
