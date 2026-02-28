@@ -149,6 +149,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   githubListAllIssues: (cwd: string, state?: string) =>
     ipcRenderer.invoke('github:list-all-issues', { cwd, state }),
   githubListLabels: (cwd: string) => ipcRenderer.invoke('github:list-labels', { cwd }),
+  githubGetDefaultBranch: (cwd: string) => ipcRenderer.invoke('github:get-default-branch', { cwd }),
+  githubGetPrCommits: (cwd: string, base: string, head: string) =>
+    ipcRenderer.invoke('github:get-pr-commits', { cwd, base, head }),
+  githubCreatePr: (args: {
+    cwd: string;
+    title: string;
+    body: string;
+    base: string;
+    draft?: boolean;
+  }) => ipcRenderer.invoke('github:create-pr', args),
 
   // Git detection
   detectGit: (folderPath: string) => ipcRenderer.invoke('app:detectGit', folderPath),

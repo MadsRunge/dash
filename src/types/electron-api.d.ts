@@ -173,6 +173,21 @@ export interface ElectronAPI {
   }) => Promise<IpcResponse<GithubIssue>>;
   githubListAllIssues: (cwd: string, state?: string) => Promise<IpcResponse<GithubIssue[]>>;
   githubListLabels: (cwd: string) => Promise<IpcResponse<GithubLabel[]>>;
+  githubGetDefaultBranch: (cwd: string) => Promise<IpcResponse<string>>;
+  githubGetPrCommits: (
+    cwd: string,
+    base: string,
+    head: string,
+  ) => Promise<
+    IpcResponse<Array<{ hash: string; subject: string; authorName: string; authorDate: number }>>
+  >;
+  githubCreatePr: (args: {
+    cwd: string;
+    title: string;
+    body: string;
+    base: string;
+    draft?: boolean;
+  }) => Promise<IpcResponse<string>>;
 
   // Git detection
   detectGit: (

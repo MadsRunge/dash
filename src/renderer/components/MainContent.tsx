@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { TerminalPane } from './TerminalPane';
-import { Terminal, FolderOpen, GitBranch, Globe } from 'lucide-react';
+import { Terminal, FolderOpen, GitBranch, Globe, GitPullRequest } from 'lucide-react';
+import { CreatePRModal } from './CreatePRModal';
 import type { Project, Task, RemoteControlState, ActivityState } from '../../shared/types';
 
 /** Convert a git remote URL (SSH or HTTPS) to a GitHub issues base URL */
@@ -38,6 +39,32 @@ export function MainContent({
   onSelectTask,
   onEnableRemoteControl,
 }: MainContentProps) {
+  const [showCreatePR, setShowCreatePR] = useState(false);
+  const [ghAvailable, setGhAvailable] = useState(false);
+  const [isAhead, setIsAhead] = useState(false);
+
+  useEffect(() => {
+    async function checkEligibility() {
+      if (!activeTask || !activeProject) return;
+
+      // Check GH availability
+      const ghRes = await window.electronAPI.githubCheckAvailable();
+      setGhAvailable(!!ghRes.success && !!ghRes.data);
+
+      // Check ahead status
+      const statusRes = await window.electronAPI.gitGetStatus(activeTask.path);
+      if (statusRes.success) {
+        setIsAhead(statusRes.data.ahead > 0);
+      }
+    }
+
+    checkEligibility();
+
+    // Re-check periodically or when active task changes
+    const interval = setInterval(checkEligibility, 30000);
+    return () => clearInterval(interval);
+  }, [activeTask?.id, activeProject?.id, activeTask?.path]);
+
   if (!activeProject) {
     return (
       <div className="h-full flex items-center justify-center bg-background">
@@ -175,6 +202,16 @@ export function MainContent({
               <Globe size={14} strokeWidth={1.8} />
             </button>
           )}
+
+          {ghAvailable && isAhead && activeTask.branch !== 'main' && activeTask.branch !== 'master' && (
+            <button
+              onClick={() => setShowCreatePR(true)}
+              className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium animate-in fade-in zoom-in-95 duration-300"
+            >
+              <GitPullRequest size={12} strokeWidth={2} />
+              <span>Create PR</span>
+            </button>
+          )}
         </>
       )}
     </div>
@@ -191,6 +228,14 @@ export function MainContent({
           autoApprove={activeTask.autoApprove}
         />
       </div>
+
+      {showCreatePR && activeTask && activeProject && (
+        <CreatePRModal
+          task={activeTask}
+          project={activeProject}
+          onClose={() => setShowCreatePR(false)}
+        />
+      )}
     </div>
   );
 }

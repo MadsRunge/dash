@@ -109,6 +109,67 @@ export class GithubService {
     }));
   }
 
+  static async getDefaultBranch(cwd: string): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync(
+        'gh',
+        ['repo', 'view', '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name'],
+        { cwd, timeout: TIMEOUT_MS, env: process.env as Record<string, string> },
+      );
+      return stdout.trim() || 'main';
+    } catch {
+      return 'main';
+    }
+  }
+
+  static async getPullRequestCommits(
+    cwd: string,
+    base: string,
+    head: string,
+  ): Promise<Array<{ hash: string; subject: string; authorName: string; authorDate: number }>> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['log', `${base}..${head}`, '--format=%H%x00%s%x00%an%x00%at'],
+      { cwd, timeout: TIMEOUT_MS },
+    );
+
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line: string) => {
+        const [hash, subject, authorName, authorDate] = line.split('\0');
+        return {
+          hash,
+          subject,
+          authorName,
+          authorDate: parseInt(authorDate, 10) || 0,
+        };
+      });
+  }
+
+  static async createPullRequest(
+    cwd: string,
+    options: {
+      title: string;
+      body: string;
+      base: string;
+      draft?: boolean;
+    },
+  ): Promise<string> {
+    const args = ['pr', 'create', '--title', options.title, '--body', options.body, '--base', options.base];
+    if (options.draft) {
+      args.push('--draft');
+    }
+
+    const { stdout } = await execFileAsync('gh', args, {
+      cwd,
+      timeout: TIMEOUT_MS,
+      env: process.env as Record<string, string>,
+    });
+
+    return stdout.trim(); // Returns the PR URL
+  }
+
   static async postBranchComment(cwd: string, issueNumber: number, branch: string): Promise<void> {
     const body = `A task branch has been created for this issue:\n\n\`\`\`\n${branch}\n\`\`\``;
     await execFileAsync('gh', ['issue', 'comment', String(issueNumber), '--body', body], {
