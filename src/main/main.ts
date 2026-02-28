@@ -70,56 +70,61 @@ if (!gotLock) {
 // ── App Ready ─────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
 
-app.whenReady().then(async () => {
-  // Initialize database
-  const { DatabaseService } = await import('./services/DatabaseService');
-  await DatabaseService.initialize();
+app
+  .whenReady()
+  .then(async () => {
+    // Initialize database
+    const { DatabaseService } = await import('./services/DatabaseService');
+    await DatabaseService.initialize();
 
-  // Start hook server (must be ready before any PTY spawns)
-  const { hookServer } = await import('./services/HookServer');
-  await hookServer.start();
+    // Start hook server (must be ready before any PTY spawns)
+    const { hookServer } = await import('./services/HookServer');
+    await hookServer.start();
 
-  // Register IPC handlers
-  const { registerAllIpc } = await import('./ipc');
-  registerAllIpc();
+    // Register IPC handlers
+    const { registerAllIpc } = await import('./ipc');
+    registerAllIpc();
 
-  // Create main window
-  const { createWindow } = await import('./window');
-  mainWindow = createWindow();
+    // Create main window
+    const { createWindow } = await import('./window');
+    mainWindow = createWindow();
 
-  // Kill PTYs owned by this window on close (CMD+W on macOS)
-  mainWindow.on('close', () => {
-    import('./services/ptyManager').then(({ killByOwner }) => {
-      killByOwner(mainWindow!.webContents);
+    // Kill PTYs owned by this window on close (CMD+W on macOS)
+    mainWindow.on('close', () => {
+      import('./services/ptyManager').then(({ killByOwner }) => {
+        killByOwner(mainWindow!.webContents);
+      });
     });
+
+    // Start activity monitor — must happen after window creation
+    const { activityMonitor } = await import('./services/ActivityMonitor');
+    activityMonitor.start(mainWindow.webContents);
+
+    // Remote control service needs a sender for state change events
+    const { remoteControlService } = await import('./services/remoteControlService');
+    remoteControlService.setSender(mainWindow.webContents);
+
+    // Start orchestrator runtime (state recovery + main-process status pipeline)
+    const { orchestratorRuntimeService } = await import('./services/OrchestratorRuntimeService');
+    orchestratorRuntimeService.start();
+    orchestratorRuntimeService.setSender(mainWindow.webContents);
+
+    // Cleanup orphaned reserve worktrees (background, non-blocking)
+    setTimeout(async () => {
+      try {
+        const { worktreePoolService } = await import('./services/WorktreePoolService');
+        await worktreePoolService.cleanupOrphanedReserves();
+      } catch {
+        // Best effort
+      }
+    }, 2000);
+
+    // Detect Claude CLI (cache for settings UI)
+    detectClaudeCli();
+  })
+  .catch((error) => {
+    console.error('[main] failed during startup:', error);
   });
-
-  // Start activity monitor — must happen after window creation
-  const { activityMonitor } = await import('./services/ActivityMonitor');
-  activityMonitor.start(mainWindow.webContents);
-
-  // Remote control service needs a sender for state change events
-  const { remoteControlService } = await import('./services/remoteControlService');
-  remoteControlService.setSender(mainWindow.webContents);
-
-  // Start orchestrator runtime (state recovery + main-process status pipeline)
-  const { orchestratorRuntimeService } = await import('./services/OrchestratorRuntimeService');
-  orchestratorRuntimeService.start();
-  orchestratorRuntimeService.setSender(mainWindow.webContents);
-
-  // Cleanup orphaned reserve worktrees (background, non-blocking)
-  setTimeout(async () => {
-    try {
-      const { worktreePoolService } = await import('./services/WorktreePoolService');
-      await worktreePoolService.cleanupOrphanedReserves();
-    } catch {
-      // Best effort
-    }
-  }, 2000);
-
-  // Detect Claude CLI (cache for settings UI)
-  detectClaudeCli();
-});
 
 // ── Claude CLI Detection ──────────────────────────────────────
 export let claudeCliCache: { installed: boolean; version: string | null; path: string | null } = {

@@ -23,10 +23,14 @@ class OrchestratorRuntimeService {
     this.started = true;
 
     this.unsubscribeActivity = activityMonitor.onChange((snapshot) => {
-      void this.handleActivitySnapshot(snapshot);
+      void this.handleActivitySnapshot(snapshot).catch((error) => {
+        console.error('[orchestrator-runtime] activity snapshot handling failed:', error);
+      });
     });
 
-    void this.recoverActiveRuns();
+    void this.recoverActiveRuns().catch((error) => {
+      console.error('[orchestrator-runtime] initial recovery failed:', error);
+    });
   }
 
   stop(): void {
@@ -42,7 +46,9 @@ class OrchestratorRuntimeService {
   setSender(sender: WebContents | null): void {
     this.sender = sender;
     if (sender) {
-      void this.recoverActiveRuns();
+      void this.recoverActiveRuns().catch((error) => {
+        console.error('[orchestrator-runtime] recovery after setSender failed:', error);
+      });
     }
   }
 

@@ -56,9 +56,7 @@ export function runMigrations(): void {
   `);
 
   rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);`);
-  rawDb.exec(
-    `CREATE INDEX IF NOT EXISTS idx_tasks_orchestrator_task_id ON tasks(orchestrator_task_id);`,
-  );
+  ensureTasksOrchestratorIndexIfColumnExists(rawDb);
 
   rawDb.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -167,6 +165,7 @@ export function runMigrations(): void {
   }
 
   ensureOrchestratorTaskForeignKey(rawDb);
+  ensureTasksOrchestratorIndexIfColumnExists(rawDb);
 
   rawDb.exec(
     `INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('orchestrator_p0', CURRENT_TIMESTAMP)`,
@@ -176,6 +175,18 @@ export function runMigrations(): void {
   );
 
   rawDb.pragma('foreign_keys = ON');
+}
+
+function ensureTasksOrchestratorIndexIfColumnExists(
+  rawDb: NonNullable<ReturnType<typeof getRawDb>>,
+): void {
+  const hasColumn = rawDb
+    .prepare(`SELECT 1 FROM pragma_table_info('tasks') WHERE name = 'orchestrator_task_id' LIMIT 1`)
+    .get() as { 1?: number } | undefined;
+  if (!hasColumn) return;
+  rawDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tasks_orchestrator_task_id ON tasks(orchestrator_task_id);`,
+  );
 }
 
 function ensureOrchestratorTaskForeignKey(rawDb: NonNullable<ReturnType<typeof getRawDb>>): void {
