@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  uniqueIndex,
+  index,
+  AnySQLiteColumn,
+} from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 export const projects = sqliteTable(
@@ -34,12 +41,14 @@ export const tasks = sqliteTable(
     useWorktree: integer('use_worktree', { mode: 'boolean' }).default(true),
     autoApprove: integer('auto_approve', { mode: 'boolean' }).default(false),
     linkedIssues: text('linked_issues'),
+    orchestratorTaskId: text('orchestrator_task_id').references((): AnySQLiteColumn => tasks.id),
     archivedAt: text('archived_at'),
     createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => ({
     projectIdIdx: index('idx_tasks_project_id').on(table.projectId),
+    orchestratorTaskIdIdx: index('idx_tasks_orchestrator_task_id').on(table.orchestratorTaskId),
   }),
 );
 

@@ -103,6 +103,7 @@ export class DatabaseService {
         useWorktree: data.useWorktree ?? true,
         autoApprove: data.autoApprove ?? false,
         linkedIssues: linkedIssuesJson,
+        orchestratorTaskId: data.orchestratorTaskId ?? null,
         createdAt: now,
         updatedAt: now,
       })
@@ -116,6 +117,7 @@ export class DatabaseService {
           aiProvider: data.aiProvider ?? 'claude',
           status: data.status ?? 'idle',
           linkedIssues: linkedIssuesJson,
+          orchestratorTaskId: data.orchestratorTaskId ?? null,
           updatedAt: now,
         },
       })
@@ -123,6 +125,16 @@ export class DatabaseService {
 
     const rows = db.select().from(tasks).where(eq(tasks.id, id)).all();
     return this.mapTask(rows[0]);
+  }
+
+  static getSubtasks(orchestratorTaskId: string): Task[] {
+    const db = getDb();
+    const rows = db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.orchestratorTaskId, orchestratorTaskId))
+      .all();
+    return rows.map(this.mapTask);
   }
 
   static deleteTask(id: string): void {
@@ -220,6 +232,7 @@ export class DatabaseService {
       useWorktree: row.useWorktree ?? true,
       autoApprove: row.autoApprove ?? false,
       linkedIssues,
+      orchestratorTaskId: row.orchestratorTaskId ?? null,
       archivedAt: row.archivedAt,
       createdAt: row.createdAt ?? '',
       updatedAt: row.updatedAt ?? '',

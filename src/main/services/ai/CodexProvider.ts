@@ -116,8 +116,13 @@ export class CodexProvider implements AiProvider {
         fs.mkdirSync(dashDir, { recursive: true });
       }
 
-      const content = PromptFormatter.formatGuardedPrompt(options.prompt, options.meta);
-      fs.writeFileSync(promptPath, content);
+      const hasPrompt = options.prompt.trim().length > 0;
+      if (hasPrompt || !fs.existsSync(promptPath)) {
+        const content = options.isOrchestrated
+          ? PromptFormatter.formatOrchestratorPrompt(options.prompt, options.meta)
+          : PromptFormatter.formatGuardedPrompt(options.prompt, options.meta);
+        fs.writeFileSync(promptPath, content);
+      }
 
       if (options.meta) {
         fs.writeFileSync(path.join(dashDir, 'meta.json'), JSON.stringify(options.meta));

@@ -10,6 +10,7 @@ import {
   GitGraph,
   LayoutGrid,
   Globe,
+  Network,
   ChevronRight,
   ChevronDown,
   PanelLeftClose,
@@ -102,6 +103,18 @@ export function LeftSidebar({
     if (tasks.some((t) => taskActivity[t.id] === 'ready' || taskActivity[t.id] === 'idle'))
       return 'ready';
     return null;
+  }
+
+  function taskStatusDot(activity: ActivityState | undefined): string {
+    if (activity === 'error' || activity === 'auth_required') return 'bg-red-500';
+    if (activity === 'awaiting_input' || activity === 'waiting') return 'bg-orange-500';
+    if (activity === 'streaming' || activity === 'busy') return 'bg-amber-400 status-pulse';
+    if (activity === 'booting') return 'bg-blue-400';
+    return 'bg-emerald-400';
+  }
+
+  function isDoneState(activity: ActivityState | undefined): boolean {
+    return activity === 'ready' || activity === 'idle';
   }
 
   /* ── Collapsed ──────────────────────────────────────────── */
@@ -214,7 +227,15 @@ export function LeftSidebar({
             const isActive = project.id === activeProjectId;
             const isProjectCollapsed = collapsedProjects.has(project.id);
             const allTasks = tasksByProject[project.id] || [];
-            const projectTasks = allTasks.filter((t) => !t.archivedAt);
+            const activeTasks = allTasks.filter((t) => !t.archivedAt);
+            const subtasksByOrchestrator = new Map<string, Task[]>();
+            for (const task of activeTasks) {
+              if (!task.orchestratorTaskId) continue;
+              const group = subtasksByOrchestrator.get(task.orchestratorTaskId) || [];
+              group.push(task);
+              subtasksByOrchestrator.set(task.orchestratorTaskId, group);
+            }
+            const projectTasks = activeTasks.filter((t) => !t.orchestratorTaskId);
             const archivedTasks = allTasks.filter((t) => t.archivedAt);
             const isArchivedCollapsed = !collapsedArchived.has(project.id);
 
@@ -250,9 +271,9 @@ export function LeftSidebar({
 
                   <span className="truncate flex-1">{project.name}</span>
 
-                  {projectTasks.length > 0 && (
+                  {activeTasks.length > 0 && (
                     <span className="text-[10px] text-foreground/50 tabular-nums flex-shrink-0 mr-0.5 leading-none">
-                      {projectTasks.length}
+                      {activeTasks.length}
                     </span>
                   )}
 
@@ -344,75 +365,149 @@ export function LeftSidebar({
                       {projectTasks.map((task) => {
                         const activity = taskActivity[task.id];
                         const isActiveTask = task.id === activeTaskId;
+                        const subtasks = subtasksByOrchestrator.get(task.id) || [];
+                        const doneCount = subtasks.filter((st) =>
+                          isDoneState(taskActivity[st.id]),
+                        ).length;
+                        const isOrchestrator = subtasks.length > 0;
 
                         return (
-                          <div
-                            key={task.id}
-                            className={`group/task relative flex items-center gap-2 pl-3.5 pr-2 py-[6px] rounded-md text-[13px] cursor-pointer transition-all duration-150 ${
-                              isActiveTask
-                                ? 'bg-primary/10 text-foreground font-medium'
-                                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                            }`}
-                            onClick={() => onSelectTask(project.id, task.id)}
-                          >
-                            {/* Status indicator */}
-                            {activity === 'error' || activity === 'auth_required' ? (
+                          <div key={task.id} className="space-y-px">
+                            <div
+                              className={`group/task relative flex items-center gap-2 pl-3.5 pr-2 py-[6px] rounded-md text-[13px] cursor-pointer transition-all duration-150 ${
+                                isActiveTask
+                                  ? 'bg-primary/10 text-foreground font-medium'
+                                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                              }`}
+                              onClick={() => onSelectTask(project.id, task.id)}
+                            >
                               <div
-                                className="w-[6px] h-[6px] rounded-full bg-red-500 flex-shrink-0"
+                                className={`w-[6px] h-[6px] rounded-full flex-shrink-0 ${taskStatusDot(activity)}`}
                                 title={activity}
                               />
-                            ) : activity === 'awaiting_input' || activity === 'waiting' ? (
-                              <div className="w-[6px] h-[6px] rounded-full bg-orange-500 flex-shrink-0" />
-                            ) : activity === 'streaming' || activity === 'busy' ? (
-                              <div className="w-[6px] h-[6px] rounded-full bg-amber-400 status-pulse flex-shrink-0" />
-                            ) : activity === 'ready' || activity === 'idle' ? (
-                              <div className="w-[6px] h-[6px] rounded-full bg-emerald-400 flex-shrink-0" />
-                            ) : activity === 'booting' ? (
-                              <div className="w-[6px] h-[6px] rounded-full bg-blue-400 flex-shrink-0" />
-                            ) : null}
-                            {remoteControlStates[task.id] && (
-                              <Globe
-                                size={10}
-                                strokeWidth={2}
-                                className="text-primary flex-shrink-0 -ml-0.5"
-                              />
-                            )}
-
-                            <span className="truncate flex-1">{task.name}</span>
-
-                            {/* Right slot: branch icon by default, actions on hover */}
-                            <div className="flex items-center gap-0.5 flex-shrink-0">
-                              {isActiveTask && (
-                                <GitBranch
-                                  size={11}
-                                  className="text-foreground/50 group-hover/task:hidden"
+                              {remoteControlStates[task.id] && (
+                                <Globe
+                                  size={10}
                                   strokeWidth={2}
+                                  className="text-primary flex-shrink-0 -ml-0.5"
                                 />
                               )}
-                              <div className="hidden group-hover/task:flex gap-0.5">
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onArchiveTask(task.id);
-                                  }}
-                                  title="Archive task"
-                                  size="sm"
-                                >
-                                  <Archive size={12} strokeWidth={1.8} />
-                                </IconButton>
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDeleteTask(task.id);
-                                  }}
-                                  title="Delete task"
-                                  variant="destructive"
-                                  size="sm"
-                                >
-                                  <Trash2 size={12} strokeWidth={1.8} />
-                                </IconButton>
+                              {isOrchestrator && (
+                                <Network
+                                  size={10}
+                                  strokeWidth={2}
+                                  className="text-primary/80 flex-shrink-0 -ml-0.5"
+                                />
+                              )}
+
+                              <span className="truncate flex-1">{task.name}</span>
+
+                              {isOrchestrator && (
+                                <span className="text-[10px] text-foreground/55 tabular-nums">
+                                  {doneCount}/{subtasks.length}
+                                </span>
+                              )}
+
+                              <div className="flex items-center gap-0.5 flex-shrink-0">
+                                {isActiveTask && (
+                                  <GitBranch
+                                    size={11}
+                                    className="text-foreground/50 group-hover/task:hidden"
+                                    strokeWidth={2}
+                                  />
+                                )}
+                                <div className="hidden group-hover/task:flex gap-0.5">
+                                  <IconButton
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onArchiveTask(task.id);
+                                    }}
+                                    title="Archive task"
+                                    size="sm"
+                                  >
+                                    <Archive size={12} strokeWidth={1.8} />
+                                  </IconButton>
+                                  <IconButton
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onDeleteTask(task.id);
+                                    }}
+                                    title="Delete task"
+                                    variant="destructive"
+                                    size="sm"
+                                  >
+                                    <Trash2 size={12} strokeWidth={1.8} />
+                                  </IconButton>
+                                </div>
                               </div>
                             </div>
+
+                            {subtasks.length > 0 && (
+                              <div className="ml-4 space-y-px">
+                                {subtasks.map((subtask) => {
+                                  const subActivity = taskActivity[subtask.id];
+                                  const isActiveSubtask = subtask.id === activeTaskId;
+
+                                  return (
+                                    <div
+                                      key={subtask.id}
+                                      className={`group/subtask relative flex items-center gap-2 pl-3.5 pr-2 py-[6px] rounded-md text-[12px] cursor-pointer transition-all duration-150 ${
+                                        isActiveSubtask
+                                          ? 'bg-primary/10 text-foreground font-medium'
+                                          : 'text-muted-foreground/90 hover:bg-accent/40 hover:text-foreground'
+                                      }`}
+                                      onClick={() => onSelectTask(project.id, subtask.id)}
+                                    >
+                                      <div
+                                        className={`w-[6px] h-[6px] rounded-full flex-shrink-0 ${taskStatusDot(subActivity)}`}
+                                      />
+                                      {remoteControlStates[subtask.id] && (
+                                        <Globe
+                                          size={10}
+                                          strokeWidth={2}
+                                          className="text-primary flex-shrink-0 -ml-0.5"
+                                        />
+                                      )}
+
+                                      <span className="truncate flex-1">{subtask.name}</span>
+
+                                      <div className="flex items-center gap-0.5 flex-shrink-0">
+                                        {isActiveSubtask && (
+                                          <GitBranch
+                                            size={11}
+                                            className="text-foreground/50 group-hover/subtask:hidden"
+                                            strokeWidth={2}
+                                          />
+                                        )}
+                                        <div className="hidden group-hover/subtask:flex gap-0.5">
+                                          <IconButton
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onArchiveTask(subtask.id);
+                                            }}
+                                            title="Archive task"
+                                            size="sm"
+                                          >
+                                            <Archive size={12} strokeWidth={1.8} />
+                                          </IconButton>
+                                          <IconButton
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDeleteTask(subtask.id);
+                                            }}
+                                            title="Delete task"
+                                            variant="destructive"
+                                            size="sm"
+                                          >
+                                            <Trash2 size={12} strokeWidth={1.8} />
+                                          </IconButton>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}

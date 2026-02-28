@@ -21,6 +21,7 @@ export interface Task {
   useWorktree: boolean;
   autoApprove: boolean;
   linkedIssues: number[] | null;
+  orchestratorTaskId: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;

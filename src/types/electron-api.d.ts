@@ -139,6 +139,7 @@ export interface ElectronAPI {
     cwd: string;
     prompt: string;
     meta?: { issueNumbers: number[]; gitRemote?: string };
+    isOrchestrated?: boolean;
   }) => Promise<IpcResponse<void>>;
 
   // App lifecycle
@@ -235,6 +236,33 @@ export interface ElectronAPI {
   gitWatch: (args: { id: string; cwd: string }) => Promise<IpcResponse<void>>;
   gitUnwatch: (id: string) => Promise<IpcResponse<void>>;
   onGitFileChanged: (callback: (id: string) => void) => () => void;
+
+  // Orchestrator
+  orchestratorGetSubtasks: (orchestratorTaskId: string) => Promise<IpcResponse<Task[]>>;
+  orchestratorMergeSubtasks: (orchestratorTaskId: string) => Promise<
+    IpcResponse<{
+      preflight: { ok: boolean; reason?: string; details?: string[] };
+      results: Array<{
+        id: string;
+        title: string;
+        branch: string;
+        state: 'merged' | 'skipped' | 'conflict' | 'failed';
+        reason?: string;
+        details?: string[];
+      }>;
+      conflicts: string[];
+      merged: number;
+      skipped: number;
+      failed: number;
+    }>
+  >;
+  orchestratorUpdateStatus: (
+    orchestratorTaskId: string,
+    activityStates: Record<string, string>,
+  ) => Promise<IpcResponse<void>>;
+  onOrchestratorSubtasksSpawned: (
+    callback: (data: { orchestratorTaskId: string; subtasks: Task[] }) => void,
+  ) => () => void;
 }
 
 declare global {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ActivityState } from '../shared/types';
+import type { ActivityState, Task } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // App
@@ -96,8 +96,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ptyHasClaudeSession: (cwd: string) => ipcRenderer.invoke('pty:hasClaudeSession', cwd),
 
   // Task context for SessionStart hook
-  ptyWriteTaskContext: (args: { taskId: string; cwd: string; prompt: string }) =>
-    ipcRenderer.invoke('pty:writeTaskContext', args),
+  ptyWriteTaskContext: (args: {
+    taskId: string;
+    cwd: string;
+    prompt: string;
+    meta?: { issueNumbers: number[]; gitRemote?: string };
+    isOrchestrated?: boolean;
+  }) => ipcRenderer.invoke('pty:writeTaskContext', args),
 
   // App lifecycle
   onBeforeQuit: (callback: () => void) => {
@@ -200,6 +205,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('git:fileChanged', handler);
     return () => {
       ipcRenderer.removeListener('git:fileChanged', handler);
+    };
+  },
+
+  // Orchestrator
+  orchestratorGetSubtasks: (orchestratorTaskId: string) =>
+    ipcRenderer.invoke('orchestrator:getSubtasks', orchestratorTaskId),
+  orchestratorMergeSubtasks: (orchestratorTaskId: string) =>
+    ipcRenderer.invoke('orchestrator:mergeSubtasks', orchestratorTaskId),
+  orchestratorUpdateStatus: (orchestratorTaskId: string, activityStates: Record<string, string>) =>
+    ipcRenderer.invoke('orchestrator:updateStatus', orchestratorTaskId, activityStates),
+  onOrchestratorSubtasksSpawned: (
+    callback: (data: { orchestratorTaskId: string; subtasks: Task[] }) => void,
+  ) => {
+    const handler = (_event: unknown, data: { orchestratorTaskId: string; subtasks: Task[] }) =>
+      callback(data);
+    ipcRenderer.on('orchestrator:subtasksSpawned', handler);
+    return () => {
+      ipcRenderer.removeListener('orchestrator:subtasksSpawned', handler);
     };
   },
 });

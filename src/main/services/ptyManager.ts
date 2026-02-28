@@ -7,12 +7,14 @@ import { createBannerFilter } from './bannerFilter';
 import { remoteControlService } from './remoteControlService';
 
 import { AiProvider } from './ai/AiProvider';
+import { startWatching, stopWatching } from './OrchestratorService';
 import { ClaudeProvider } from './ai/ClaudeProvider';
 import { GeminiProvider } from './ai/GeminiProvider';
 import { CodexProvider } from './ai/CodexProvider';
 import { DatabaseService } from './DatabaseService';
 import type { IPty } from 'node-pty';
 import { OutputParser } from './ai/OutputParser';
+import type { Project, Task } from '../../shared/types';
 
 interface PtyRecord {
   proc: IPty;
@@ -78,7 +80,12 @@ export function writeTaskContext(
   cwd: string,
   prompt: string,
   meta?: { issueNumbers: number[]; gitRemote?: string },
+  isOrchestrated?: boolean,
 ): void {
+  if (isOrchestrated) {
+    ensureOrchestratorMarker(cwd);
+  }
+
   const provider = getProviderForTask(taskId);
   provider.setupWorktree({
     cwd,
@@ -86,6 +93,7 @@ export function writeTaskContext(
     prompt,
     meta,
     commitAttributionSetting,
+    isOrchestrated,
   });
 }
 
@@ -122,6 +130,7 @@ export async function startDirectPty(options: {
 
   const pty = getPty();
   const provider = getProviderForTask(options.id);
+  const orchestratorRuntime = getOrchestratorRuntime(options.id, options.cwd);
 
   const execPath = await provider.getExecutablePath();
   const args = provider.getSpawnArgs(options);
@@ -133,6 +142,7 @@ export async function startDirectPty(options: {
     id: options.id,
     prompt: '', // No prompt here, it was done in writeTaskContext
     commitAttributionSetting,
+    isOrchestrated: orchestratorRuntime.enabled,
   });
 
   const proc = pty.spawn(execPath, args, {
@@ -183,11 +193,24 @@ export async function startDirectPty(options: {
     if (ptys.get(options.id) !== record) return;
     activityMonitor.unregister(options.id);
     remoteControlService.unregister(options.id);
+    stopWatching(options.id);
     if (record.owner && !record.owner.isDestroyed()) {
       record.owner.send(`pty:exit:${options.id}`, { exitCode, signal });
     }
     ptys.delete(options.id);
   });
+
+  // Start orchestrator file watcher for orchestrator tasks
+  if (orchestratorRuntime.enabled && orchestratorRuntime.task && orchestratorRuntime.project) {
+    startWatching(orchestratorRuntime.task, orchestratorRuntime.project, (subtasks) => {
+      if (record.owner && !record.owner.isDestroyed()) {
+        record.owner.send('orchestrator:subtasksSpawned', {
+          orchestratorTaskId: options.id,
+          subtasks,
+        });
+      }
+    });
+  }
 
   const taskContextMeta = provider.readTaskContextMeta(options.cwd);
 
@@ -197,6 +220,46 @@ export async function startDirectPty(options: {
     hasTaskContext: !!taskContextMeta,
     taskContextMeta,
   };
+}
+
+function ensureOrchestratorMarker(cwd: string): void {
+  const dashDir = path.join(cwd, '.dash');
+  const markerPath = path.join(dashDir, 'orchestrator.json');
+  try {
+    if (!fs.existsSync(dashDir)) {
+      fs.mkdirSync(dashDir, { recursive: true });
+    }
+    if (!fs.existsSync(markerPath)) {
+      fs.writeFileSync(
+        markerPath,
+        JSON.stringify({ enabled: true, createdAt: new Date().toISOString() }, null, 2),
+      );
+    }
+  } catch {
+    // Best effort; orchestrator mode still works when subtasks already exist in DB.
+  }
+}
+
+function getOrchestratorRuntime(
+  taskId: string,
+  cwd: string,
+): { enabled: boolean; task: Task | null; project: Project | null } {
+  const task = DatabaseService.getTask(taskId);
+  if (!task || task.orchestratorTaskId) {
+    return { enabled: false, task: null, project: null };
+  }
+
+  const markerPath = path.join(cwd, '.dash', 'orchestrator.json');
+  const hasMarker = fs.existsSync(markerPath);
+  const hasSubtasks = DatabaseService.getSubtasks(taskId).length > 0;
+  const enabled = hasMarker || hasSubtasks;
+
+  if (!enabled) {
+    return { enabled: false, task, project: null };
+  }
+
+  const project = DatabaseService.getProjects().find((p) => p.id === task.projectId) ?? null;
+  return { enabled: true, task, project };
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { hookServer } from '../HookServer';
 import { AiProvider, SetupContextOptions, SpawnOptions, TaskContextMeta } from './AiProvider';
+import { PromptFormatter } from './PromptFormatter';
 
 const execFileAsync = promisify(execFile);
 
@@ -117,10 +118,13 @@ export class ClaudeProvider implements AiProvider {
     // Write task-context.json if prompt is provided
     if (options.prompt) {
       const contextPath = path.join(claudeDir, 'task-context.json');
+      const prompt = options.isOrchestrated
+        ? PromptFormatter.formatOrchestratorPrompt(options.prompt, options.meta)
+        : options.prompt;
       const payload: Record<string, unknown> = {
         hookSpecificOutput: {
           hookEventName: 'SessionStart',
-          additionalContext: options.prompt,
+          additionalContext: prompt,
         },
       };
       if (options.meta) {

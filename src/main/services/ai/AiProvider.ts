@@ -19,6 +19,7 @@ export interface SetupContextOptions {
   prompt: string;
   meta?: TaskContextMeta;
   commitAttributionSetting?: string;
+  isOrchestrated?: boolean;
 }
 
 export interface AiProvider {

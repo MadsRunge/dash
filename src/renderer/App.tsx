@@ -108,8 +108,13 @@ export function App() {
     Record<string, RemoteControlState>
   >({});
   const [remoteControlModalPtyId, setRemoteControlModalPtyId] = useState<string | null>(null);
+  const [orchestratorMerging, setOrchestratorMerging] = useState<Record<string, boolean>>({});
+  const [orchestratorMergeConflicts, setOrchestratorMergeConflicts] = useState<
+    Record<string, string[]>
+  >({});
 
   const notificationSoundRef = useRef(notificationSound);
+  const autoStartedSubtasksRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     notificationSoundRef.current = notificationSound;
   }, [notificationSound]);
@@ -246,6 +251,70 @@ export function App() {
 
     return unsubscribe;
   }, []);
+
+  // Refresh task lists when orchestrator spawns new subtasks
+  useEffect(() => {
+    return window.electronAPI.onOrchestratorSubtasksSpawned(({ orchestratorTaskId, subtasks }) => {
+      const projectId =
+        subtasks[0]?.projectId ??
+        Object.entries(tasksByProject).find(([, tasks]) =>
+          tasks.some((task) => task.id === orchestratorTaskId),
+        )?.[0];
+      if (projectId) {
+        loadTasksForProject(projectId);
+      }
+
+      // Auto-start all spawned subagents in parallel
+      for (const subtask of subtasks) {
+        if (autoStartedSubtasksRef.current.has(subtask.id)) continue;
+        autoStartedSubtasksRef.current.add(subtask.id);
+
+        const startSubtask = async () => {
+          // Claude requires task-context.json for initial instructions.
+          if (subtask.aiProvider === 'claude') {
+            const prompt = subtask.description?.trim() || `Task: ${subtask.name}`;
+            await window.electronAPI.ptyWriteTaskContext({
+              taskId: subtask.id,
+              cwd: subtask.path,
+              prompt,
+              meta: { issueNumbers: [] },
+            });
+          }
+
+          await window.electronAPI.ptyStartDirect({
+            id: subtask.id,
+            cwd: subtask.path,
+            cols: 120,
+            rows: 30,
+            autoApprove: subtask.autoApprove,
+            isDark: theme === 'dark',
+          });
+        };
+
+        startSubtask().catch(() => {
+          // Best effort
+        });
+      }
+    });
+  }, [tasksByProject, theme]);
+
+  // Keep .dash/subtask-status.json in sync with activity monitor states
+  useEffect(() => {
+    const orchestratorIds = new Set<string>();
+    for (const tasks of Object.values(tasksByProject)) {
+      for (const task of tasks) {
+        if (task.orchestratorTaskId) {
+          orchestratorIds.add(task.orchestratorTaskId);
+        }
+      }
+    }
+
+    for (const orchestratorTaskId of orchestratorIds) {
+      window.electronAPI.orchestratorUpdateStatus(orchestratorTaskId, taskActivity).catch(() => {
+        // Best effort
+      });
+    }
+  }, [taskActivity, tasksByProject]);
 
   // Persist selection to localStorage (survives CMD+R reload)
   useEffect(() => {
@@ -631,6 +700,7 @@ export function App() {
     linkedIssues?: GithubIssue[],
     aiProvider?: string,
     description?: string,
+    isOrchestrated?: boolean,
   ) {
     const targetProjectId = taskModalProjectId || activeProjectId;
     const targetProject = projects.find((p) => p.id === targetProjectId);
@@ -677,12 +747,16 @@ export function App() {
       autoApprove,
       aiProvider: aiProvider ?? 'claude',
       linkedIssues: linkedIssueNumbers,
+      orchestratorTaskId: null,
     });
 
     if (saveResp.success && saveResp.data) {
       const taskId = saveResp.data.id;
 
       // Write task context file for SessionStart hook injection
+      let prompt: string | null = null;
+      let meta: { issueNumbers: number[]; gitRemote?: string } | undefined;
+
       if (linkedIssues && linkedIssues.length > 0) {
         const issueBlocks = linkedIssues.map((issue) => {
           const labels = issue.labels.length > 0 ? `Labels: ${issue.labels.join(', ')}\n` : '';
@@ -692,22 +766,26 @@ export function App() {
           return `## Issue #${issue.number}: ${issue.title}\n${labels}${bodyExcerpt}`;
         });
 
-        const prompt = `I'm working on the following GitHub issue(s):\n\n${issueBlocks.join('\n\n')}\n\nPlease help me implement a solution for this.`;
-        window.electronAPI.ptyWriteTaskContext({
+        prompt = `I'm working on the following GitHub issue(s):\n\n${issueBlocks.join('\n\n')}\n\nPlease help me implement a solution for this.`;
+        meta = {
+          issueNumbers: linkedIssues.map((i) => i.number),
+          gitRemote: targetProject.gitRemote ?? undefined,
+        };
+      } else if (description?.trim()) {
+        prompt = description.trim();
+        meta = { issueNumbers: [] };
+      } else if (isOrchestrated) {
+        prompt = `Task: ${name}`;
+        meta = { issueNumbers: [] };
+      }
+
+      if (prompt) {
+        await window.electronAPI.ptyWriteTaskContext({
           taskId,
           cwd: taskPath,
           prompt,
-          meta: {
-            issueNumbers: linkedIssues.map((i) => i.number),
-            gitRemote: targetProject.gitRemote ?? undefined,
-          },
-        });
-      } else if (description) {
-        window.electronAPI.ptyWriteTaskContext({
-          taskId,
-          cwd: taskPath,
-          prompt: description,
-          meta: { issueNumbers: [] },
+          meta,
+          isOrchestrated: !!isOrchestrated,
         });
       }
 
@@ -736,6 +814,30 @@ export function App() {
             });
         }
       }
+    }
+  }
+
+  async function handleMergeSubtasks(orchestratorTaskId: string) {
+    setOrchestratorMerging((prev) => ({ ...prev, [orchestratorTaskId]: true }));
+    setOrchestratorMergeConflicts((prev) => ({ ...prev, [orchestratorTaskId]: [] }));
+
+    try {
+      const res = await window.electronAPI.orchestratorMergeSubtasks(orchestratorTaskId);
+      if (res.success) {
+        setOrchestratorMergeConflicts((prev) => ({
+          ...prev,
+          [orchestratorTaskId]: res.data?.conflicts ?? [],
+        }));
+      }
+
+      const projectId = Object.entries(tasksByProject).find(([, tasks]) =>
+        tasks.some((task) => task.id === orchestratorTaskId),
+      )?.[0];
+      if (projectId) {
+        await loadTasksForProject(projectId);
+      }
+    } finally {
+      setOrchestratorMerging((prev) => ({ ...prev, [orchestratorTaskId]: false }));
     }
   }
 
@@ -999,6 +1101,11 @@ export function App() {
               remoteControlStates={remoteControlStates}
               onSelectTask={setActiveTaskId}
               onEnableRemoteControl={(taskId) => setRemoteControlModalPtyId(taskId)}
+              onMergeSubtasks={handleMergeSubtasks}
+              orchestratorMerging={activeTask ? !!orchestratorMerging[activeTask.id] : false}
+              orchestratorMergeConflicts={
+                activeTask ? orchestratorMergeConflicts[activeTask.id] || [] : []
+              }
             />
           </ShellDrawerWrapper>
         </Panel>

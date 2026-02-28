@@ -117,10 +117,11 @@ export function registerPtyIpc(): void {
         cwd: string;
         prompt: string;
         meta?: { issueNumbers: number[]; gitRemote?: string };
+        isOrchestrated?: boolean;
       },
     ) => {
       try {
-        writeTaskContext(args.taskId, args.cwd, args.prompt, args.meta);
+        writeTaskContext(args.taskId, args.cwd, args.prompt, args.meta, args.isOrchestrated);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };

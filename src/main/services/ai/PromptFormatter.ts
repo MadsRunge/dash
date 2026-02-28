@@ -37,4 +37,41 @@ ${instruction.trim()}
 
     return finalPrompt;
   }
+
+  /**
+   * Formats the prompt for an orchestrator (master AI) task.
+   * Injects instructions on how to delegate subtasks via .dash/subtasks.json.
+   */
+  static formatOrchestratorPrompt(instruction: string, meta?: TaskContextMeta): string {
+    const base = this.formatGuardedPrompt(instruction, meta);
+
+    const orchestratorInstructions = `
+[ORCHESTRATOR MODE]
+You are the master coordinator for a multi-agent task in Dash.
+
+Your workflow:
+1. Analyze the task and codebase thoroughly
+2. Break it into 2-5 focused subtasks
+3. Write your plan to .dash/subtasks.json — Dash will automatically spawn a separate AI agent for each subtask in its own terminal and worktree
+4. Monitor progress via .dash/subtask-status.json (Dash keeps this updated)
+5. When allDone=true in the status file, review the merged result
+
+Subtask plan format (.dash/subtasks.json):
+{
+  "subtasks": [
+    {
+      "title": "Short descriptive title",
+      "provider": "claude",
+      "description": "Detailed instructions for the subagent — be specific about what to implement",
+      "focusFiles": ["src/components/", "src/api/"]
+    }
+  ]
+}
+
+Provider options: "claude", "gemini", "codex"
+Write the file when you are ready to delegate. Dash will handle the rest.
+`;
+
+    return orchestratorInstructions + '\n' + base;
+  }
 }

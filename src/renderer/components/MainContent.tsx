@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { Terminal, FolderOpen, GitBranch, Globe, GitPullRequest, PauseCircle } from 'lucide-react';
 import { CreatePRModal } from './CreatePRModal';
+import { OrchestratorPanel } from './OrchestratorPanel';
 import type { Project, Task, RemoteControlState, ActivityState } from '../../shared/types';
 
 /** Convert a git remote URL (SSH or HTTPS) to a GitHub issues base URL */
@@ -26,6 +27,9 @@ interface MainContentProps {
   remoteControlStates?: Record<string, RemoteControlState>;
   onSelectTask?: (id: string) => void;
   onEnableRemoteControl?: (taskId: string) => void;
+  onMergeSubtasks?: (orchestratorTaskId: string) => void;
+  orchestratorMerging?: boolean;
+  orchestratorMergeConflicts?: string[];
 }
 
 export function MainContent({
@@ -38,6 +42,9 @@ export function MainContent({
   remoteControlStates = {},
   onSelectTask,
   onEnableRemoteControl,
+  onMergeSubtasks,
+  orchestratorMerging = false,
+  orchestratorMergeConflicts = [],
 }: MainContentProps) {
   const [showCreatePR, setShowCreatePR] = useState(false);
   const [ghAvailable, setGhAvailable] = useState(false);
@@ -105,6 +112,9 @@ export function MainContent({
       </div>
     );
   }
+
+  const activeSubtasks = tasks.filter((task) => task.orchestratorTaskId === activeTask.id);
+  const isOrchestratorTask = activeSubtasks.length > 0;
 
   const taskHeader = (
     <div
@@ -234,6 +244,17 @@ export function MainContent({
   return (
     <div className="h-full flex flex-col bg-background">
       {taskHeader}
+      {isOrchestratorTask && (
+        <OrchestratorPanel
+          orchestratorTask={activeTask}
+          subtasks={activeSubtasks}
+          taskActivity={taskActivity}
+          isMerging={orchestratorMerging}
+          conflicts={orchestratorMergeConflicts}
+          onMerge={(taskId) => onMergeSubtasks?.(taskId)}
+          onSelectTask={onSelectTask}
+        />
+      )}
       <div className="flex-1 min-h-0">
         <TerminalPane
           key={activeTask.id}

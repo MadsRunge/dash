@@ -23,6 +23,7 @@ interface TaskModalProps {
     linkedIssues?: GithubIssue[],
     aiProvider?: string,
     description?: string,
+    isOrchestrated?: boolean,
   ) => void;
   initialLinkedIssues?: GithubIssue[];
 }
@@ -30,6 +31,7 @@ interface TaskModalProps {
 export function TaskModal({ projectPath, onClose, onCreate, initialLinkedIssues }: TaskModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [isOrchestrated, setIsOrchestrated] = useState(false);
   const [useWorktree, setUseWorktree] = useState(true);
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem('yoloMode') === 'true');
   const [aiProvider, setAiProvider] = useState(
@@ -176,6 +178,7 @@ export function TaskModal({ projectPath, onClose, onCreate, initialLinkedIssues 
         selectedIssues.length > 0 ? selectedIssues : undefined,
         aiProvider,
         description.trim() || undefined,
+        isOrchestrated || undefined,
       );
       onClose();
     }
@@ -502,6 +505,28 @@ export function TaskModal({ projectPath, onClose, onCreate, initialLinkedIssues 
               </div>
             </div>
           )}
+
+          {/* Orchestrated task toggle */}
+          <div className="mb-4">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={isOrchestrated}
+                  onChange={(e) => setIsOrchestrated(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-8 h-[18px] rounded-full bg-accent peer-checked:bg-primary/80 transition-colors duration-200" />
+                <div className="absolute top-[3px] left-[3px] w-3 h-3 rounded-full bg-muted-foreground/40 peer-checked:bg-primary-foreground peer-checked:translate-x-[14px] transition-all duration-200" />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] text-foreground/80">Orchestrated task</span>
+                <span className="text-[11px] text-muted-foreground/40">
+                  Master AI delegates subtasks to separate agents automatically
+                </span>
+              </div>
+            </label>
+          </div>
 
           {/* Settings Row (Yolo & AI) */}
           <div className="mb-6 flex items-center justify-between">
