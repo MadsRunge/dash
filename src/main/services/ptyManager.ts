@@ -12,6 +12,7 @@ import { GeminiProvider } from './ai/GeminiProvider';
 import { CodexProvider } from './ai/CodexProvider';
 import { DatabaseService } from './DatabaseService';
 import type { IPty } from 'node-pty';
+import { OutputParser } from './ai/OutputParser';
 
 interface PtyRecord {
   proc: IPty;
@@ -19,6 +20,7 @@ interface PtyRecord {
   isDirectSpawn: boolean;
   owner: WebContents | null;
   provider?: AiProvider;
+  parser?: OutputParser;
 }
 
 const ptys = new Map<string, PtyRecord>();
@@ -141,12 +143,15 @@ export async function startDirectPty(options: {
     env,
   });
 
+  const parser = provider.getOutputParser ? provider.getOutputParser() : undefined;
+
   const record: PtyRecord = {
     proc,
     cwd: options.cwd,
     isDirectSpawn: true,
     owner: options.sender || null,
     provider,
+    parser,
   };
 
   ptys.set(options.id, record);
@@ -163,16 +168,13 @@ export async function startDirectPty(options: {
     remoteControlService.onPtyData(options.id, data);
 
     // Parse state events if provider has an output parser
-    if (provider.getOutputParser) {
-      const parser = provider.getOutputParser();
-      if (parser) {
-        const events = parser.ingest(data);
-        for (const ev of events) {
-          if (ev.type === 'state') {
-            activityMonitor.forceState(options.id, ev.state, ev.reason);
-          }
-          // Note: ev.type === 'meta' handling can be added here later if needed
+    if (record.parser) {
+      const events = record.parser.ingest(data);
+      for (const ev of events) {
+        if (ev.type === 'state') {
+          activityMonitor.forceState(options.id, ev.state, ev.reason);
         }
+        // Note: ev.type === 'meta' handling can be added here later if needed
       }
     }
   });
