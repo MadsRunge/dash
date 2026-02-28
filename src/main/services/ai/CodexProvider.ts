@@ -44,10 +44,19 @@ export class CodexProvider implements AiProvider {
       }
     }
 
-    throw new Error('Codex CLI ikke fundet. Installer den med: npm install -g @openai/codex');
+    throw new Error('Codex CLI not found. Install it with: npm install -g @openai/codex');
   }
 
   getSpawnArgs(options: SpawnOptions): string[] {
+    if (options.resume) {
+      // 'codex resume --last' resumes the most recent session — no initial prompt needed
+      const args = ['resume', '--last'];
+      if (options.autoApprove) {
+        args.push('--full-auto');
+      }
+      return args;
+    }
+
     const args: string[] = [];
 
     try {
@@ -61,7 +70,8 @@ export class CodexProvider implements AiProvider {
     }
 
     if (options.autoApprove) {
-      args.push('--approval-mode', 'full-auto');
+      // --full-auto sets --ask-for-approval on-request + --sandbox workspace-write
+      args.push('--full-auto');
     }
 
     return args;
@@ -73,11 +83,13 @@ export class CodexProvider implements AiProvider {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       TERM_PROGRAM: 'dash',
+      COLORFGBG: (options.isDark ?? true) ? '15;0' : '0;15',
     };
 
     const authVars = [
       'OPENAI_API_KEY',
       'AZURE_OPENAI_API_KEY',
+      'OPENAI_BASE_URL',
       'HTTP_PROXY',
       'HTTPS_PROXY',
       'NO_PROXY',
@@ -131,15 +143,21 @@ export class CodexProvider implements AiProvider {
   }
 
   updateCommitAttribution(_cwd: string, _ptyId: string, _attributionSetting?: string): void {
-    // Implementeres hvis Codex senere understøtter en custom attribution config
+    // No-op: Codex does not support custom commit attribution config
   }
 
   getOutputParser(): OutputParser {
     return new GenericOutputParser({
-      promptPattern: /(?:^|\n)(?:codex|>)>\s?$/m,
-      authPattern: /(please\s+login|api\s+key|unauthorized)/i,
-      awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b).*$/im,
-      errorPattern: /(error|failed|exception)/i,
+      // Codex is a full TUI — after ANSI stripping its composer area shows "> "
+      // at the bottom. This pattern matches when the TUI is ready for input.
+      promptPattern: /(?:^|\n)\s*>\s*$/m,
+      // Codex supports ChatGPT Plus/Pro OAuth login or OPENAI_API_KEY.
+      // These patterns cover both the initial sign-in TUI and API key errors.
+      authPattern:
+        /(sign\s+in\s+with\s+chatgpt|sign\s+in\s+to\s+continue|not\s+authenticated|invalid\s+api\s+key|api\s+key\s+not\s+set|please\s+set\s+openai_api_key|authentication\s+failed|unauthorized)/i,
+      awaitPattern:
+        /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b|\bapprove\b|\bdeny\b).*$/im,
+      errorPattern: /(^\s*error:|failed\s+to|exception:|rate\s+limit)/im,
     });
   }
 }

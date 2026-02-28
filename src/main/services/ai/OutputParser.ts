@@ -19,6 +19,12 @@ export interface OutputParser {
   ingest(chunk: string): OutputEvent[];
   /** Reset buffer between sessions */
   reset(): void;
+  /**
+   * Called when the user submits input (presses Enter).
+   * Clears the accumulated buffer so patterns from the previous exchange
+   * (e.g. y/n prompts) don't latch into the next interaction.
+   */
+  onUserInput(): void;
 }
 
 /**

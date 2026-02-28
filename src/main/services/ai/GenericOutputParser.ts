@@ -21,6 +21,18 @@ export class GenericOutputParser implements OutputParser {
     this.state = 'booting';
   }
 
+  /**
+   * Called when the user submits input. Clears the buffer so patterns
+   * from the previous exchange (y/n prompts, etc.) don't latch into the
+   * next interaction cycle.
+   */
+  onUserInput() {
+    this.buf = '';
+    if (this.state === 'awaiting_input' || this.state === 'ready') {
+      this.state = 'streaming';
+    }
+  }
+
   ingest(chunk: string): OutputEvent[] {
     const out: OutputEvent[] = [];
     const text = normalizePtyOutput(chunk);
@@ -40,10 +52,14 @@ export class GenericOutputParser implements OutputParser {
       return out;
     }
 
-    // 2) Errors (evaluate on recent chunk to avoid latching old errors)
-    if (this.state !== 'streaming' && this.config.errorPattern.test(text)) {
-      this.state = 'error';
-      out.push({ type: 'state', state: 'error', reason: 'CLI reported an error' });
+    // 2) Errors — only flag when not already streaming to avoid false positives
+    // from model output that mentions "error" in its response text.
+    if (this.state === 'booting' || this.state === 'ready' || this.state === 'awaiting_input') {
+      if (this.config.errorPattern.test(text)) {
+        this.state = 'error';
+        out.push({ type: 'state', state: 'error', reason: 'CLI reported an error' });
+        return out;
+      }
     }
 
     // 3) Awaiting user input

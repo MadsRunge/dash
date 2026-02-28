@@ -378,6 +378,11 @@ export function writePty(id: string, data: string): void {
   const record = ptys.get(id);
   if (record) {
     record.proc.write(data);
+    // Notify parser that user submitted input so it clears its buffer.
+    // \r = Enter in PTY; ignore single-char navigation keys.
+    if (record.parser && data === '\r') {
+      record.parser.onUserInput();
+    }
   }
 }
 

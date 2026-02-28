@@ -124,10 +124,14 @@ export class GeminiProvider implements AiProvider {
 
   getOutputParser(): OutputParser {
     return new GenericOutputParser({
-      promptPattern: /(?:^|\n)(?:gemini|>)>\s?$/m,
-      authPattern: /(please\s+login|unauthorized|not\s+authenticated|sign\s+in)/i,
-      awaitPattern: /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b|\bselect\b).*$/im,
-      errorPattern: /(error|failed|exception|traceback)/i,
+      // Gemini CLI interactive prompt is "> " at the start of a line
+      promptPattern: /(?:^|\n)>\s+$/m,
+      // Gemini uses Google OAuth — these indicate auth is needed
+      authPattern:
+        /(please\s+sign\s+in|visit\s+this\s+url|authorization\s+required|not\s+authenticated|please\s+run\s+gemini\s+auth)/i,
+      awaitPattern:
+        /(?:^|\n).*(?:\b(y\/n)\b|\bcontinue\?\b|\bpress\s+enter\b|\bselect\b|\ballow\b).*$/im,
+      errorPattern: /(^\s*error:|failed\s+to|exception:|traceback)/im,
     });
   }
 }
