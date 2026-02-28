@@ -128,6 +128,22 @@ export class CodexProvider implements AiProvider {
         `Failed to write task context: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+
+    // Trust the worktree folder in Codex's config so --full-auto works.
+    // Codex refuses privileged approval modes in untrusted folders.
+    this.trustFolder(options.cwd);
+  }
+
+  private trustFolder(folderPath: string): void {
+    const configPath = path.join(os.homedir(), '.codex', 'config.toml');
+    try {
+      if (!fs.existsSync(configPath)) return;
+      const content = fs.readFileSync(configPath, 'utf-8');
+      if (content.includes(`[projects."${folderPath}"]`)) return;
+      fs.appendFileSync(configPath, `\n[projects."${folderPath}"]\ntrust_level = "trusted"\n`);
+    } catch {
+      // Non-fatal — Codex will just ask for approval manually
+    }
   }
 
   readTaskContextMeta(cwd: string): TaskContextMeta | null {

@@ -104,6 +104,26 @@ export class GeminiProvider implements AiProvider {
         `Failed to write task context: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+
+    // Trust the worktree folder in Gemini's settings so -y (auto-approve) works.
+    // Gemini refuses privileged approval modes in untrusted folders.
+    this.trustFolder(options.cwd);
+  }
+
+  private trustFolder(folderPath: string): void {
+    const trustedFoldersPath = path.join(os.homedir(), '.gemini', 'trustedFolders.json');
+    try {
+      let trusted: Record<string, string> = {};
+      if (fs.existsSync(trustedFoldersPath)) {
+        trusted = JSON.parse(fs.readFileSync(trustedFoldersPath, 'utf-8'));
+      }
+      if (trusted[folderPath] !== 'TRUST_FOLDER') {
+        trusted[folderPath] = 'TRUST_FOLDER';
+        fs.writeFileSync(trustedFoldersPath, JSON.stringify(trusted, null, 2));
+      }
+    } catch {
+      // Non-fatal — Gemini will just ask for approval manually
+    }
   }
 
   readTaskContextMeta(cwd: string): TaskContextMeta | null {

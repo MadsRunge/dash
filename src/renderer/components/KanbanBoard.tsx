@@ -106,7 +106,9 @@ export function KanbanBoard({ projectPath, projectName, onClose, onCreateTask }:
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col"
-      style={{ background: 'hsl(var(--background))' }}
+      style={
+        { background: 'hsl(var(--background))', WebkitAppRegion: 'no-drag' } as React.CSSProperties
+      }
     >
       {/* Header */}
       <div
