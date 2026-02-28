@@ -7,7 +7,7 @@ import { createBannerFilter } from './bannerFilter';
 import { remoteControlService } from './remoteControlService';
 
 import { AiProvider } from './ai/AiProvider';
-import { startWatching, stopWatching } from './OrchestratorService';
+import { startWatching } from './OrchestratorService';
 import { ClaudeProvider } from './ai/ClaudeProvider';
 import { GeminiProvider } from './ai/GeminiProvider';
 import { CodexProvider } from './ai/CodexProvider';
@@ -193,7 +193,6 @@ export async function startDirectPty(options: {
     if (ptys.get(options.id) !== record) return;
     activityMonitor.unregister(options.id);
     remoteControlService.unregister(options.id);
-    stopWatching(options.id);
     if (record.owner && !record.owner.isDestroyed()) {
       record.owner.send(`pty:exit:${options.id}`, { exitCode, signal });
     }

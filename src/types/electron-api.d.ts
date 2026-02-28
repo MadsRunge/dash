@@ -256,6 +256,99 @@ export interface ElectronAPI {
       failed: number;
     }>
   >;
+  orchestratorGetRun: (orchestratorTaskId: string) => Promise<
+    IpcResponse<{
+      run: {
+        id: string;
+        orchestratorTaskId: string;
+        projectId: string;
+        state: 'planned' | 'spawning' | 'running' | 'merging' | 'failed' | 'done' | 'cancelled';
+        error: string | null;
+        startedAt: string;
+        completedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+      };
+      status: {
+        subtasks: Array<{
+          id: string;
+          title: string;
+          state: string;
+          branch: string;
+          error?: string;
+        }>;
+        allDone: boolean;
+        updatedAt: string;
+        error?: { code: string; message: string; details?: string[] };
+        merge?: {
+          preflight: { ok: boolean; reason?: string; details?: string[] };
+          results: Array<{
+            id: string;
+            title: string;
+            branch: string;
+            state: 'merged' | 'skipped' | 'conflict' | 'failed';
+            reason?: string;
+            details?: string[];
+          }>;
+          conflicts: string[];
+          merged: number;
+          skipped: number;
+          failed: number;
+        };
+      } | null;
+      events: Array<{
+        id: string;
+        runId: string;
+        orchestratorTaskId: string;
+        level: 'info' | 'warn' | 'error';
+        type: string;
+        message: string;
+        payload: string | null;
+        createdAt: string;
+      }>;
+    } | null>
+  >;
+  orchestratorGetStatus: (orchestratorTaskId: string) => Promise<
+    IpcResponse<{
+      subtasks: Array<{ id: string; title: string; state: string; branch: string; error?: string }>;
+      allDone: boolean;
+      updatedAt: string;
+      error?: { code: string; message: string; details?: string[] };
+      merge?: {
+        preflight: { ok: boolean; reason?: string; details?: string[] };
+        results: Array<{
+          id: string;
+          title: string;
+          branch: string;
+          state: 'merged' | 'skipped' | 'conflict' | 'failed';
+          reason?: string;
+          details?: string[];
+        }>;
+        conflicts: string[];
+        merged: number;
+        skipped: number;
+        failed: number;
+      };
+    } | null>
+  >;
+  orchestratorRetrySubtask: (args: {
+    orchestratorTaskId: string;
+    subtaskId: string;
+    cols?: number;
+    rows?: number;
+  }) => Promise<
+    IpcResponse<{
+      reattached: boolean;
+      isDirectSpawn: boolean;
+      hasTaskContext: boolean;
+      taskContextMeta: { issueNumbers: number[]; gitRemote?: string } | null;
+    }>
+  >;
+  orchestratorCancelSubtask: (args: {
+    orchestratorTaskId: string;
+    subtaskId: string;
+  }) => Promise<IpcResponse<void>>;
+  orchestratorRegeneratePlan: (orchestratorTaskId: string) => Promise<IpcResponse<void>>;
   orchestratorUpdateStatus: (
     orchestratorTaskId: string,
     activityStates: Record<string, string>,

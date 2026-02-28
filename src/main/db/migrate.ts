@@ -18,6 +18,9 @@ export function runMigrations(): void {
       git_remote TEXT,
       git_branch TEXT,
       base_ref TEXT,
+      orchestration_max_subtasks INTEGER NOT NULL DEFAULT 5,
+      orchestration_allowed_providers TEXT NOT NULL DEFAULT '["claude","gemini","codex"]',
+      orchestration_auto_merge_policy TEXT NOT NULL DEFAULT 'manual',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -72,6 +75,49 @@ export function runMigrations(): void {
 
   rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);`);
 
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS orchestrator_runs (
+      id TEXT PRIMARY KEY,
+      orchestrator_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      state TEXT NOT NULL,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  rawDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_orchestrator_runs_orchestrator_task_id ON orchestrator_runs(orchestrator_task_id);`,
+  );
+  rawDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_orchestrator_runs_project_id ON orchestrator_runs(project_id);`,
+  );
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_orchestrator_runs_state ON orchestrator_runs(state);`);
+
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS orchestrator_events (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES orchestrator_runs(id) ON DELETE CASCADE,
+      orchestrator_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      level TEXT NOT NULL DEFAULT 'info',
+      type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      payload TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  rawDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_orchestrator_events_run_id ON orchestrator_events(run_id);`,
+  );
+  rawDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_orchestrator_events_orchestrator_task_id ON orchestrator_events(orchestrator_task_id);`,
+  );
+  rawDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_orchestrator_events_created_at ON orchestrator_events(created_at);`,
+  );
+
   // Migrations for existing databases
   try {
     rawDb.exec(`ALTER TABLE tasks ADD COLUMN auto_approve INTEGER DEFAULT 0`);
@@ -98,11 +144,35 @@ export function runMigrations(): void {
   } catch {
     /* already exists */
   }
+  try {
+    rawDb.exec(
+      `ALTER TABLE projects ADD COLUMN orchestration_max_subtasks INTEGER NOT NULL DEFAULT 5`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    rawDb.exec(
+      `ALTER TABLE projects ADD COLUMN orchestration_allowed_providers TEXT NOT NULL DEFAULT '["claude","gemini","codex"]'`,
+    );
+  } catch {
+    /* already exists */
+  }
+  try {
+    rawDb.exec(
+      `ALTER TABLE projects ADD COLUMN orchestration_auto_merge_policy TEXT NOT NULL DEFAULT 'manual'`,
+    );
+  } catch {
+    /* already exists */
+  }
 
   ensureOrchestratorTaskForeignKey(rawDb);
 
   rawDb.exec(
     `INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('orchestrator_p0', CURRENT_TIMESTAMP)`,
+  );
+  rawDb.exec(
+    `INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES ('orchestrator_p1', CURRENT_TIMESTAMP)`,
   );
 
   rawDb.pragma('foreign_keys = ON');

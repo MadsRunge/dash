@@ -102,6 +102,11 @@ app.whenReady().then(async () => {
   const { remoteControlService } = await import('./services/remoteControlService');
   remoteControlService.setSender(mainWindow.webContents);
 
+  // Start orchestrator runtime (state recovery + main-process status pipeline)
+  const { orchestratorRuntimeService } = await import('./services/OrchestratorRuntimeService');
+  orchestratorRuntimeService.start();
+  orchestratorRuntimeService.setSender(mainWindow.webContents);
+
   // Cleanup orphaned reserve worktrees (background, non-blocking)
   setTimeout(async () => {
     try {
@@ -160,6 +165,8 @@ app.on('activate', async () => {
     activityMonitor.start(mainWindow.webContents);
     const { remoteControlService } = await import('./services/remoteControlService');
     remoteControlService.setSender(mainWindow.webContents);
+    const { orchestratorRuntimeService } = await import('./services/OrchestratorRuntimeService');
+    orchestratorRuntimeService.setSender(mainWindow.webContents);
   }
 });
 
@@ -193,10 +200,24 @@ app.on('before-quit', async () => {
     // Best effort
   }
 
+  try {
+    const { orchestratorRuntimeService } = await import('./services/OrchestratorRuntimeService');
+    orchestratorRuntimeService.stop();
+  } catch {
+    // Best effort
+  }
+
   // Stop all file watchers
   try {
     const { stopAll } = await import('./services/FileWatcherService');
     stopAll();
+  } catch {
+    // Best effort
+  }
+
+  try {
+    const { stopAllWatching } = await import('./services/OrchestratorService');
+    stopAllWatching();
   } catch {
     // Best effort
   }

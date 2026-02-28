@@ -30,6 +30,34 @@ interface MainContentProps {
   onMergeSubtasks?: (orchestratorTaskId: string) => void;
   orchestratorMerging?: boolean;
   orchestratorMergeConflicts?: string[];
+  orchestratorRunState?: string | null;
+  orchestratorRunEvents?: Array<{
+    id: string;
+    level: 'info' | 'warn' | 'error';
+    type: string;
+    message: string;
+    createdAt: string;
+  }>;
+  orchestratorStatusError?: { code: string; message: string; details?: string[] } | null;
+  orchestratorMergeResult?: {
+    preflight: { ok: boolean; reason?: string; details?: string[] };
+    results: Array<{
+      id: string;
+      title: string;
+      branch: string;
+      state: 'merged' | 'skipped' | 'conflict' | 'failed';
+      reason?: string;
+      details?: string[];
+    }>;
+    conflicts: string[];
+    merged: number;
+    skipped: number;
+    failed: number;
+  } | null;
+  onRetrySubtask?: (orchestratorTaskId: string, subtaskId: string) => void;
+  onCancelSubtask?: (orchestratorTaskId: string, subtaskId: string) => void;
+  onRegeneratePlan?: (orchestratorTaskId: string) => void;
+  onOpenConflictFile?: (orchestratorTask: Task, filePath: string) => void;
 }
 
 export function MainContent({
@@ -45,6 +73,14 @@ export function MainContent({
   onMergeSubtasks,
   orchestratorMerging = false,
   orchestratorMergeConflicts = [],
+  orchestratorRunState = null,
+  orchestratorRunEvents = [],
+  orchestratorStatusError = null,
+  orchestratorMergeResult = null,
+  onRetrySubtask,
+  onCancelSubtask,
+  onRegeneratePlan,
+  onOpenConflictFile,
 }: MainContentProps) {
   const [showCreatePR, setShowCreatePR] = useState(false);
   const [ghAvailable, setGhAvailable] = useState(false);
@@ -251,8 +287,16 @@ export function MainContent({
           taskActivity={taskActivity}
           isMerging={orchestratorMerging}
           conflicts={orchestratorMergeConflicts}
+          runState={orchestratorRunState}
+          runEvents={orchestratorRunEvents}
+          statusError={orchestratorStatusError}
+          mergeResult={orchestratorMergeResult}
           onMerge={(taskId) => onMergeSubtasks?.(taskId)}
+          onRetrySubtask={onRetrySubtask}
+          onCancelSubtask={onCancelSubtask}
+          onRegeneratePlan={onRegeneratePlan}
           onSelectTask={onSelectTask}
+          onOpenConflictFile={(filePath) => onOpenConflictFile?.(activeTask, filePath)}
         />
       )}
       <div className="flex-1 min-h-0">

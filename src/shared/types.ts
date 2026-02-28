@@ -5,6 +5,9 @@ export interface Project {
   gitRemote: string | null;
   gitBranch: string | null;
   baseRef: string | null;
+  orchestrationMaxSubtasks: number;
+  orchestrationAllowedProviders: string[];
+  orchestrationAutoMergePolicy: 'manual' | 'when_all_done';
   createdAt: string;
   updatedAt: string;
 }
@@ -25,6 +28,38 @@ export interface Task {
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type OrchestratorRunState =
+  | 'planned'
+  | 'spawning'
+  | 'running'
+  | 'merging'
+  | 'failed'
+  | 'done'
+  | 'cancelled';
+
+export interface OrchestratorRun {
+  id: string;
+  orchestratorTaskId: string;
+  projectId: string;
+  state: OrchestratorRunState;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrchestratorEvent {
+  id: string;
+  runId: string;
+  orchestratorTaskId: string;
+  level: 'info' | 'warn' | 'error';
+  type: string;
+  message: string;
+  payload: string | null;
+  createdAt: string;
 }
 
 export interface Conversation {

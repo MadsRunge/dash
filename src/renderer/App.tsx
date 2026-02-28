@@ -26,6 +26,8 @@ import type {
   GithubIssue,
   RemoteControlState,
   ActivityState,
+  OrchestratorEvent,
+  OrchestratorRun,
 } from '../shared/types';
 import { loadKeybindings, saveKeybindings, matchesBinding } from './keybindings';
 import type { KeyBindingMap } from './keybindings';
@@ -34,6 +36,36 @@ import { playNotificationSound, playPeonSound } from './sounds';
 import type { NotificationSound } from './sounds';
 
 const GIT_POLL_INTERVAL = 5000;
+
+interface OrchestratorMergePayload {
+  preflight: { ok: boolean; reason?: string; details?: string[] };
+  results: Array<{
+    id: string;
+    title: string;
+    branch: string;
+    state: 'merged' | 'skipped' | 'conflict' | 'failed';
+    reason?: string;
+    details?: string[];
+  }>;
+  conflicts: string[];
+  merged: number;
+  skipped: number;
+  failed: number;
+}
+
+interface OrchestratorStatusPayload {
+  subtasks: Array<{ id: string; title: string; state: string; branch: string; error?: string }>;
+  allDone: boolean;
+  updatedAt: string;
+  error?: { code: string; message: string; details?: string[] };
+  merge?: OrchestratorMergePayload;
+}
+
+interface OrchestratorRunSnapshot {
+  run: OrchestratorRun;
+  events: OrchestratorEvent[];
+  status: OrchestratorStatusPayload | null;
+}
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -112,6 +144,9 @@ export function App() {
   const [orchestratorMergeConflicts, setOrchestratorMergeConflicts] = useState<
     Record<string, string[]>
   >({});
+  const [orchestratorRuns, setOrchestratorRuns] = useState<Record<string, OrchestratorRunSnapshot>>(
+    {},
+  );
 
   const notificationSoundRef = useRef(notificationSound);
   const autoStartedSubtasksRef = useRef<Set<string>>(new Set());
@@ -263,6 +298,9 @@ export function App() {
       if (projectId) {
         loadTasksForProject(projectId);
       }
+      refreshOrchestratorRun(orchestratorTaskId).catch(() => {
+        // Best effort
+      });
 
       // Auto-start all spawned subagents in parallel
       for (const subtask of subtasks) {
@@ -298,7 +336,7 @@ export function App() {
     });
   }, [tasksByProject, theme]);
 
-  // Keep .dash/subtask-status.json in sync with activity monitor states
+  // Poll orchestrator run snapshots (run state + timeline + merge/conflict data)
   useEffect(() => {
     const orchestratorIds = new Set<string>();
     for (const tasks of Object.values(tasksByProject)) {
@@ -308,13 +346,39 @@ export function App() {
         }
       }
     }
+    if (activeTask && !activeTask.orchestratorTaskId) {
+      orchestratorIds.add(activeTask.id);
+    }
 
-    for (const orchestratorTaskId of orchestratorIds) {
-      window.electronAPI.orchestratorUpdateStatus(orchestratorTaskId, taskActivity).catch(() => {
+    if (orchestratorIds.size === 0) return;
+
+    let cancelled = false;
+    const ids = Array.from(orchestratorIds);
+
+    const refresh = async () => {
+      await Promise.all(
+        ids.map(async (id) => {
+          const resp = await window.electronAPI.orchestratorGetRun(id);
+          if (!resp.success || !resp.data || cancelled) return;
+          setOrchestratorRuns((prev) => ({ ...prev, [id]: resp.data! }));
+        }),
+      );
+    };
+
+    refresh().catch(() => {
+      // Best effort
+    });
+    const timer = setInterval(() => {
+      refresh().catch(() => {
         // Best effort
       });
-    }
-  }, [taskActivity, tasksByProject]);
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [tasksByProject, activeTask?.id, activeTask?.orchestratorTaskId]);
 
   // Persist selection to localStorage (survives CMD+R reload)
   useEffect(() => {
@@ -594,6 +658,13 @@ export function App() {
     }
   }
 
+  async function refreshOrchestratorRun(orchestratorTaskId: string) {
+    const resp = await window.electronAPI.orchestratorGetRun(orchestratorTaskId);
+    if (resp.success && resp.data) {
+      setOrchestratorRuns((prev) => ({ ...prev, [orchestratorTaskId]: resp.data! }));
+    }
+  }
+
   async function refreshGitStatus(cwd: string) {
     setGitLoading(true);
     try {
@@ -836,9 +907,33 @@ export function App() {
       if (projectId) {
         await loadTasksForProject(projectId);
       }
+      await refreshOrchestratorRun(orchestratorTaskId);
     } finally {
       setOrchestratorMerging((prev) => ({ ...prev, [orchestratorTaskId]: false }));
     }
+  }
+
+  async function handleRetrySubtask(orchestratorTaskId: string, subtaskId: string) {
+    await window.electronAPI.orchestratorRetrySubtask({ orchestratorTaskId, subtaskId });
+    await refreshOrchestratorRun(orchestratorTaskId);
+  }
+
+  async function handleCancelSubtask(orchestratorTaskId: string, subtaskId: string) {
+    await window.electronAPI.orchestratorCancelSubtask({ orchestratorTaskId, subtaskId });
+    await refreshOrchestratorRun(orchestratorTaskId);
+  }
+
+  async function handleRegeneratePlan(orchestratorTaskId: string) {
+    const result = await window.electronAPI.orchestratorRegeneratePlan(orchestratorTaskId);
+    if (!result.success) return;
+
+    const projectId = Object.entries(tasksByProject).find(([, tasks]) =>
+      tasks.some((task) => task.id === orchestratorTaskId),
+    )?.[0];
+    if (projectId) {
+      await loadTasksForProject(projectId);
+    }
+    await refreshOrchestratorRun(orchestratorTaskId);
   }
 
   function handleDeleteTask(id: string) {
@@ -986,6 +1081,26 @@ export function App() {
     }
   }
 
+  async function handleSaveProjectPolicy(policy: {
+    maxSubtasks: number;
+    allowedProviders: string[];
+    autoMergePolicy: 'manual' | 'when_all_done';
+  }) {
+    if (!activeProject) return;
+    await window.electronAPI.saveProject({
+      id: activeProject.id,
+      name: activeProject.name,
+      path: activeProject.path,
+      gitRemote: activeProject.gitRemote,
+      gitBranch: activeProject.gitBranch,
+      baseRef: activeProject.baseRef,
+      orchestrationMaxSubtasks: policy.maxSubtasks,
+      orchestrationAllowedProviders: policy.allowedProviders,
+      orchestrationAutoMergePolicy: policy.autoMergePolicy,
+    });
+    await loadProjects();
+  }
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden">
       <div
@@ -1104,8 +1219,34 @@ export function App() {
               onMergeSubtasks={handleMergeSubtasks}
               orchestratorMerging={activeTask ? !!orchestratorMerging[activeTask.id] : false}
               orchestratorMergeConflicts={
-                activeTask ? orchestratorMergeConflicts[activeTask.id] || [] : []
+                activeTask
+                  ? (orchestratorRuns[activeTask.id]?.status?.merge?.conflicts ??
+                    orchestratorMergeConflicts[activeTask.id] ??
+                    [])
+                  : []
               }
+              orchestratorRunState={
+                activeTask ? (orchestratorRuns[activeTask.id]?.run.state ?? null) : null
+              }
+              orchestratorRunEvents={
+                activeTask ? (orchestratorRuns[activeTask.id]?.events ?? []) : []
+              }
+              orchestratorStatusError={
+                activeTask ? (orchestratorRuns[activeTask.id]?.status?.error ?? null) : null
+              }
+              orchestratorMergeResult={
+                activeTask ? (orchestratorRuns[activeTask.id]?.status?.merge ?? null) : null
+              }
+              onRetrySubtask={handleRetrySubtask}
+              onCancelSubtask={handleCancelSubtask}
+              onRegeneratePlan={handleRegeneratePlan}
+              onOpenConflictFile={(orchestratorTask, filePath) => {
+                window.electronAPI
+                  .openInEditor({ cwd: orchestratorTask.path, filePath })
+                  .catch(() => {
+                    // Best effort
+                  });
+              }}
             />
           </ShellDrawerWrapper>
         </Panel>
@@ -1238,6 +1379,8 @@ export function App() {
             localStorage.setItem('desktopNotification', String(v));
           }}
           activeProjectPath={activeProject?.path}
+          activeProject={activeProject}
+          onSaveProjectPolicy={handleSaveProjectPolicy}
           commitAttribution={commitAttribution}
           onCommitAttributionChange={(v) => {
             setCommitAttribution(v);

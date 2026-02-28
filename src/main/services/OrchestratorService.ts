@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import { getRawDb } from '../db/client';
 import { DatabaseService } from './DatabaseService';
 import { WorktreeService } from './WorktreeService';
-import type { Task, Project, WorktreeInfo } from '../../shared/types';
+import type { OrchestratorRun, Project, Task, WorktreeInfo } from '../../shared/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -79,10 +79,46 @@ export interface MergeExecutionResult {
   failed: number;
 }
 
+export interface OrchestratorStatusFile {
+  subtasks: SubtaskStatus[];
+  allDone: boolean;
+  updatedAt: string;
+  error?: StatusError;
+  merge?: MergeExecutionResult;
+  run?: { id: string; state: string };
+}
+
 // Active watchers: orchestratorTaskId -> FSWatcher
 const watchers = new Map<string, fs.FSWatcher>();
 
 const worktreeService = new WorktreeService();
+
+function ensureActiveRun(orchestratorTask: Task): OrchestratorRun {
+  const existing = DatabaseService.getActiveOrchestratorRun(orchestratorTask.id);
+  if (existing) return existing;
+  return DatabaseService.createOrchestratorRun({
+    orchestratorTaskId: orchestratorTask.id,
+    projectId: orchestratorTask.projectId,
+    state: 'planned',
+  });
+}
+
+function logRunEvent(
+  runId: string,
+  orchestratorTaskId: string,
+  type: string,
+  message: string,
+  options?: { level?: 'info' | 'warn' | 'error'; payload?: unknown },
+): void {
+  DatabaseService.appendOrchestratorEvent({
+    runId,
+    orchestratorTaskId,
+    type,
+    message,
+    level: options?.level ?? 'info',
+    payload: options?.payload,
+  });
+}
 
 export function startWatching(
   orchestratorTask: Task,
@@ -116,28 +152,127 @@ export function stopWatching(orchestratorTaskId: string): void {
   }
 }
 
+export function stopAllWatching(): void {
+  for (const watcher of watchers.values()) {
+    try {
+      watcher.close();
+    } catch {
+      // Ignore
+    }
+  }
+  watchers.clear();
+}
+
+export async function regeneratePlan(
+  orchestratorTask: Task,
+  project: Project,
+  onSubtasksSpawned: (subtasks: Task[]) => void,
+): Promise<{ ok: boolean; message?: string }> {
+  const existing = DatabaseService.getSubtasks(orchestratorTask.id);
+  if (existing.length > 0) {
+    return {
+      ok: false,
+      message: 'Cannot regenerate plan while subtasks already exist',
+    };
+  }
+
+  const planPath = path.join(orchestratorTask.path, '.dash', 'subtasks.json');
+  if (!fs.existsSync(planPath)) {
+    return {
+      ok: false,
+      message: 'No .dash/subtasks.json found',
+    };
+  }
+
+  const run = DatabaseService.createOrchestratorRun({
+    orchestratorTaskId: orchestratorTask.id,
+    projectId: orchestratorTask.projectId,
+    state: 'planned',
+  });
+  logRunEvent(
+    run.id,
+    orchestratorTask.id,
+    'plan.regenerate.requested',
+    'Manual plan regeneration requested',
+  );
+
+  await processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned);
+  return { ok: true };
+}
+
 async function processPlanFile(
   planPath: string,
   orchestratorTask: Task,
   project: Project,
   onSubtasksSpawned: (subtasks: Task[]) => void,
 ): Promise<void> {
+  const run = ensureActiveRun(orchestratorTask);
   try {
+    DatabaseService.transitionOrchestratorRun(run.id, 'planned');
     const content = fs.readFileSync(planPath, 'utf-8');
     const parsed: unknown = JSON.parse(content);
-    const validation = validateSubtaskPlan(parsed);
+    const validation = validateSubtaskPlan(parsed, {
+      maxSubtasks: project.orchestrationMaxSubtasks,
+      allowedProviders: project.orchestrationAllowedProviders,
+    });
     if (!validation.ok || !validation.plan) {
       updateStatusFile(orchestratorTask.path, [], {}, validation.error);
+      DatabaseService.transitionOrchestratorRun(
+        run.id,
+        'failed',
+        validation.error?.message ?? 'Plan invalid',
+      );
+      logRunEvent(
+        run.id,
+        orchestratorTask.id,
+        'plan.invalid',
+        validation.error?.message ?? 'Invalid plan',
+        {
+          level: 'error',
+          payload: validation.error,
+        },
+      );
       return;
     }
 
     const existing = DatabaseService.getSubtasks(orchestratorTask.id);
-    if (existing.length > 0) return;
+    if (existing.length > 0) {
+      DatabaseService.transitionOrchestratorRun(run.id, 'running');
+      return;
+    }
+
+    DatabaseService.transitionOrchestratorRun(run.id, 'spawning');
+    logRunEvent(
+      run.id,
+      orchestratorTask.id,
+      'plan.accepted',
+      'Plan accepted and spawning started',
+      {
+        payload: { subtaskCount: validation.plan.subtasks.length },
+      },
+    );
 
     const spawnedTasks = await spawnSubtasks(validation.plan, orchestratorTask, project);
-    if (spawnedTasks.length === 0) return;
+    if (spawnedTasks.length === 0) {
+      DatabaseService.transitionOrchestratorRun(run.id, 'failed', 'Spawn failed');
+      logRunEvent(run.id, orchestratorTask.id, 'subtasks.spawn_failed', 'Subtask spawn failed', {
+        level: 'error',
+      });
+      return;
+    }
+    DatabaseService.transitionOrchestratorRun(run.id, 'running');
+    logRunEvent(
+      run.id,
+      orchestratorTask.id,
+      'subtasks.spawned',
+      `Spawned ${spawnedTasks.length} subtasks`,
+      {
+        payload: { subtaskIds: spawnedTasks.map((task) => task.id) },
+      },
+    );
     onSubtasksSpawned(spawnedTasks);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     updateStatusFile(
       orchestratorTask.path,
       [],
@@ -145,9 +280,15 @@ async function processPlanFile(
       {
         code: 'invalid_json',
         message: 'Unable to parse .dash/subtasks.json',
-        details: [error instanceof Error ? error.message : String(error)],
+        details: [message],
       },
     );
+    DatabaseService.transitionOrchestratorRun(
+      run.id,
+      'failed',
+      'Unable to parse .dash/subtasks.json',
+    );
+    logRunEvent(run.id, orchestratorTask.id, 'plan.parse_failed', message, { level: 'error' });
   }
 }
 
@@ -350,6 +491,7 @@ export function updateStatusFile(
   activityStates: Record<string, string>,
   error?: StatusError,
   merge?: MergeExecutionResult,
+  run?: { id: string; state: string },
 ): void {
   try {
     fs.mkdirSync(path.join(orchestratorPath, '.dash'), { recursive: true });
@@ -378,7 +520,7 @@ export function updateStatusFile(
 
     const allDone =
       statuses.length > 0 && statuses.every((s) => s.state === 'idle' || s.state === 'ready');
-    const payload: Record<string, unknown> = {
+    const payload: OrchestratorStatusFile = {
       subtasks: statuses,
       allDone,
       updatedAt: new Date().toISOString(),
@@ -386,6 +528,9 @@ export function updateStatusFile(
 
     const mergePayload = merge ?? (previous.merge as MergeExecutionResult | undefined);
     if (mergePayload) payload.merge = mergePayload;
+
+    const runPayload = run ?? (previous.run as { id: string; state: string } | undefined);
+    if (runPayload) payload.run = runPayload;
 
     const errorPayload =
       error ?? (statuses.length === 0 ? (previous.error as StatusError | undefined) : undefined);
@@ -397,12 +542,40 @@ export function updateStatusFile(
   }
 }
 
+export function readStatusFile(orchestratorPath: string): OrchestratorStatusFile | null {
+  try {
+    const statusPath = path.join(orchestratorPath, '.dash', 'subtask-status.json');
+    if (!fs.existsSync(statusPath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(statusPath, 'utf-8')) as OrchestratorStatusFile;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!Array.isArray(parsed.subtasks)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export async function mergeSubtasks(
   orchestratorTask: Task,
   subtasks: Task[],
 ): Promise<MergeExecutionResult> {
+  const run = ensureActiveRun(orchestratorTask);
+  DatabaseService.transitionOrchestratorRun(run.id, 'merging');
+  logRunEvent(run.id, orchestratorTask.id, 'merge.started', 'Merge started', {
+    payload: { subtaskCount: subtasks.length },
+  });
+
   const preflight = await runMergePreflight(orchestratorTask);
   if (!preflight.ok) {
+    DatabaseService.transitionOrchestratorRun(
+      run.id,
+      'failed',
+      `Merge preflight failed: ${preflight.reason}`,
+    );
+    logRunEvent(run.id, orchestratorTask.id, 'merge.preflight_failed', 'Merge preflight failed', {
+      level: 'error',
+      payload: preflight,
+    });
     return {
       preflight,
       results: [],
@@ -520,7 +693,7 @@ export async function mergeSubtasks(
     });
   }
 
-  return {
+  const summary: MergeExecutionResult = {
     preflight,
     results,
     conflicts,
@@ -528,6 +701,33 @@ export async function mergeSubtasks(
     skipped: results.filter((r) => r.state === 'skipped').length,
     failed: results.filter((r) => r.state === 'failed' || r.state === 'conflict').length,
   };
+
+  const mergeSucceeded =
+    summary.preflight.ok && summary.failed === 0 && summary.conflicts.length === 0;
+  if (mergeSucceeded) {
+    DatabaseService.transitionOrchestratorRun(run.id, 'done');
+    logRunEvent(run.id, orchestratorTask.id, 'merge.completed', 'Merge completed successfully', {
+      payload: summary,
+    });
+  } else {
+    DatabaseService.transitionOrchestratorRun(
+      run.id,
+      'failed',
+      'Merge completed with failures or conflicts',
+    );
+    logRunEvent(
+      run.id,
+      orchestratorTask.id,
+      'merge.failed',
+      'Merge completed with failures or conflicts',
+      {
+        level: 'error',
+        payload: summary,
+      },
+    );
+  }
+
+  return summary;
 }
 
 async function runMergePreflight(orchestratorTask: Task): Promise<MergePreflight> {
@@ -628,7 +828,17 @@ function normalizeProvider(raw: string | undefined, fallback: string): string {
   return 'claude';
 }
 
-function validateSubtaskPlan(input: unknown): PlanValidationResult {
+function validateSubtaskPlan(
+  input: unknown,
+  policy?: { maxSubtasks?: number; allowedProviders?: string[] },
+): PlanValidationResult {
+  const providerCandidates = (policy?.allowedProviders ?? ['claude', 'gemini', 'codex']).filter(
+    (provider) => provider === 'claude' || provider === 'gemini' || provider === 'codex',
+  );
+  const allowedProviders =
+    providerCandidates.length > 0 ? providerCandidates : ['claude', 'gemini', 'codex'];
+  const maxSubtasks = Math.max(1, Math.min(8, Math.round(policy?.maxSubtasks ?? 8)));
+
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return {
       ok: false,
@@ -644,12 +854,12 @@ function validateSubtaskPlan(input: unknown): PlanValidationResult {
     };
   }
 
-  if (subtasksRaw.length < 1 || subtasksRaw.length > 8) {
+  if (subtasksRaw.length < 1 || subtasksRaw.length > maxSubtasks) {
     return {
       ok: false,
       error: {
         code: 'invalid_plan',
-        message: 'Plan must contain between 1 and 8 subtasks',
+        message: `Plan must contain between 1 and ${maxSubtasks} subtasks`,
       },
     };
   }
@@ -680,8 +890,8 @@ function validateSubtaskPlan(input: unknown): PlanValidationResult {
 
     if (!title) errors.push(`${prefix}.title is required`);
     if (!description) errors.push(`${prefix}.description is required`);
-    if (provider !== 'claude' && provider !== 'gemini' && provider !== 'codex') {
-      errors.push(`${prefix}.provider must be one of: claude, gemini, codex`);
+    if (!allowedProviders.includes(provider)) {
+      errors.push(`${prefix}.provider must be one of: ${allowedProviders.join(', ')}`);
     }
 
     const dedupeKey = title.toLowerCase();

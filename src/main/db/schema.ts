@@ -17,6 +17,13 @@ export const projects = sqliteTable(
     gitRemote: text('git_remote'),
     gitBranch: text('git_branch'),
     baseRef: text('base_ref'),
+    orchestrationMaxSubtasks: integer('orchestration_max_subtasks').notNull().default(5),
+    orchestrationAllowedProviders: text('orchestration_allowed_providers')
+      .notNull()
+      .default('["claude","gemini","codex"]'),
+    orchestrationAutoMergePolicy: text('orchestration_auto_merge_policy')
+      .notNull()
+      .default('manual'),
     createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
   },
@@ -68,5 +75,54 @@ export const conversations = sqliteTable(
   },
   (table) => ({
     taskIdIdx: index('idx_conversations_task_id').on(table.taskId),
+  }),
+);
+
+export const orchestratorRuns = sqliteTable(
+  'orchestrator_runs',
+  {
+    id: text('id').primaryKey(),
+    orchestratorTaskId: text('orchestrator_task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    state: text('state').notNull(),
+    error: text('error'),
+    startedAt: text('started_at').notNull(),
+    completedAt: text('completed_at'),
+    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    orchestratorTaskIdx: index('idx_orchestrator_runs_orchestrator_task_id').on(
+      table.orchestratorTaskId,
+    ),
+    projectIdx: index('idx_orchestrator_runs_project_id').on(table.projectId),
+    stateIdx: index('idx_orchestrator_runs_state').on(table.state),
+  }),
+);
+
+export const orchestratorEvents = sqliteTable(
+  'orchestrator_events',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => orchestratorRuns.id, { onDelete: 'cascade' }),
+    orchestratorTaskId: text('orchestrator_task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    level: text('level').notNull().default('info'),
+    type: text('type').notNull(),
+    message: text('message').notNull(),
+    payload: text('payload'),
+    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    runIdx: index('idx_orchestrator_events_run_id').on(table.runId),
+    taskIdx: index('idx_orchestrator_events_orchestrator_task_id').on(table.orchestratorTaskId),
+    createdIdx: index('idx_orchestrator_events_created_at').on(table.createdAt),
   }),
 );

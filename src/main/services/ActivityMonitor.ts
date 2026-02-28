@@ -17,6 +17,7 @@ class ActivityMonitorImpl {
   private activities = new Map<string, PtyActivity>();
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private sender: WebContents | null = null;
+  private listeners = new Set<(snapshot: Record<string, ActivityState>) => void>();
 
   register(ptyId: string, pid: number, isDirectSpawn: boolean): void {
     this.activities.set(ptyId, {
@@ -122,6 +123,14 @@ class ActivityMonitorImpl {
       result[id] = activity.state;
     }
     return result;
+  }
+
+  onChange(listener: (snapshot: Record<string, ActivityState>) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.getAll());
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private schedulePoll(): void {
@@ -233,8 +242,16 @@ class ActivityMonitorImpl {
   }
 
   private emitAll(): void {
+    const snapshot = this.getAll();
     if (this.sender && !this.sender.isDestroyed()) {
-      this.sender.send('pty:activity', this.getAll());
+      this.sender.send('pty:activity', snapshot);
+    }
+    for (const listener of this.listeners) {
+      try {
+        listener(snapshot);
+      } catch {
+        // Non-fatal listener failure
+      }
     }
   }
 }

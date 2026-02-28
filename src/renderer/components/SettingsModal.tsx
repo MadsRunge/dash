@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Check, AlertCircle, Sun, Moon, Terminal, RotateCcw } from 'lucide-react';
 import type { KeyBindingMap, KeyBinding } from '../keybindings';
+import type { Project } from '../../shared/types';
 import {
   getBindingKeys,
   bindingFromEvent,
@@ -32,6 +33,12 @@ interface SettingsModalProps {
   commitAttribution: string | undefined;
   onCommitAttributionChange: (value: string | undefined) => void;
   activeProjectPath?: string;
+  activeProject?: Project | null;
+  onSaveProjectPolicy?: (policy: {
+    maxSubtasks: number;
+    allowedProviders: string[];
+    autoMergePolicy: 'manual' | 'when_all_done';
+  }) => Promise<void> | void;
   keybindings: KeyBindingMap;
   onKeybindingsChange: (bindings: KeyBindingMap) => void;
   onClose: () => void;
@@ -131,6 +138,8 @@ export function SettingsModal({
   commitAttribution,
   onCommitAttributionChange,
   activeProjectPath,
+  activeProject,
+  onSaveProjectPolicy,
   keybindings,
   onKeybindingsChange,
   onClose,
@@ -145,6 +154,15 @@ export function SettingsModal({
   } | null>(null);
   const [appVersion, setAppVersion] = useState('');
   const [claudeDefaultAttribution, setClaudeDefaultAttribution] = useState<string | null>(null);
+  const [projectMaxSubtasks, setProjectMaxSubtasks] = useState(5);
+  const [projectAllowedProviders, setProjectAllowedProviders] = useState<string[]>([
+    'claude',
+    'gemini',
+    'codex',
+  ]);
+  const [projectAutoMergePolicy, setProjectAutoMergePolicy] = useState<'manual' | 'when_all_done'>(
+    'manual',
+  );
 
   useEffect(() => {
     window.electronAPI.detectClaude().then((resp) => {
@@ -157,6 +175,13 @@ export function SettingsModal({
       }
     });
   }, [activeProjectPath]);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    setProjectMaxSubtasks(activeProject.orchestrationMaxSubtasks);
+    setProjectAllowedProviders(activeProject.orchestrationAllowedProviders);
+    setProjectAutoMergePolicy(activeProject.orchestrationAutoMergePolicy);
+  }, [activeProject]);
 
   function handleBindingChange(id: string, updated: KeyBinding) {
     onKeybindingsChange({ ...keybindings, [id]: updated });
@@ -184,6 +209,26 @@ export function SettingsModal({
   }
 
   const groups = groupByCategory(keybindings);
+
+  async function handleSaveProjectPolicy() {
+    if (!onSaveProjectPolicy || !activeProject) return;
+    const providers = projectAllowedProviders.length > 0 ? projectAllowedProviders : ['claude'];
+    await onSaveProjectPolicy({
+      maxSubtasks: Math.max(1, Math.min(8, Math.round(projectMaxSubtasks || 1))),
+      allowedProviders: providers,
+      autoMergePolicy: projectAutoMergePolicy,
+    });
+  }
+
+  function toggleProvider(provider: 'claude' | 'gemini' | 'codex') {
+    setProjectAllowedProviders((prev) => {
+      if (prev.includes(provider)) {
+        const next = prev.filter((entry) => entry !== provider);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, provider];
+    });
+  }
 
   return (
     <div
@@ -428,6 +473,92 @@ export function SettingsModal({
                   attribution. Clear the field to disable attribution.
                 </p>
               </div>
+
+              {/* Project Orchestration Policy */}
+              {activeProject && (
+                <div>
+                  <label className="block text-[12px] font-medium text-foreground mb-3">
+                    Orchestration Policy ({activeProject.name})
+                  </label>
+
+                  <div className="space-y-3 p-3 rounded-lg border border-border/50 bg-accent/20">
+                    <div>
+                      <label className="block text-[11px] text-foreground/70 mb-1.5">
+                        Max subtasks
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={8}
+                        value={projectMaxSubtasks}
+                        onChange={(e) => setProjectMaxSubtasks(Number(e.target.value || 1))}
+                        className="w-24 px-2.5 py-1.5 rounded-lg bg-background border border-input/60 text-foreground text-[12px] focus:outline-none focus:ring-2 focus:ring-ring/30"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-foreground/70 mb-1.5">
+                        Allowed providers
+                      </label>
+                      <div className="flex gap-2">
+                        {(['claude', 'gemini', 'codex'] as const).map((provider) => {
+                          const active = projectAllowedProviders.includes(provider);
+                          return (
+                            <button
+                              key={provider}
+                              onClick={() => toggleProvider(provider)}
+                              className={`px-2.5 py-1.5 rounded-md text-[11px] border transition-all ${
+                                active
+                                  ? 'border-primary/40 bg-primary/8 text-foreground'
+                                  : 'border-border/60 text-foreground/60 hover:bg-accent/40'
+                              }`}
+                            >
+                              {provider}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-foreground/70 mb-1.5">
+                        Auto merge
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setProjectAutoMergePolicy('manual')}
+                          className={`px-2.5 py-1.5 rounded-md text-[11px] border transition-all ${
+                            projectAutoMergePolicy === 'manual'
+                              ? 'border-primary/40 bg-primary/8 text-foreground'
+                              : 'border-border/60 text-foreground/60 hover:bg-accent/40'
+                          }`}
+                        >
+                          Manual
+                        </button>
+                        <button
+                          onClick={() => setProjectAutoMergePolicy('when_all_done')}
+                          className={`px-2.5 py-1.5 rounded-md text-[11px] border transition-all ${
+                            projectAutoMergePolicy === 'when_all_done'
+                              ? 'border-primary/40 bg-primary/8 text-foreground'
+                              : 'border-border/60 text-foreground/60 hover:bg-accent/40'
+                          }`}
+                        >
+                          When all done
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <button
+                        onClick={handleSaveProjectPolicy}
+                        className="px-3 py-1.5 rounded-md text-[11px] border border-border/60 text-foreground/80 hover:bg-accent/60"
+                      >
+                        Save policy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Version */}
               <div>

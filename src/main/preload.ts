@@ -213,6 +213,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('orchestrator:getSubtasks', orchestratorTaskId),
   orchestratorMergeSubtasks: (orchestratorTaskId: string) =>
     ipcRenderer.invoke('orchestrator:mergeSubtasks', orchestratorTaskId),
+  orchestratorGetRun: (orchestratorTaskId: string) =>
+    ipcRenderer.invoke('orchestrator:getRun', orchestratorTaskId),
+  orchestratorGetStatus: (orchestratorTaskId: string) =>
+    ipcRenderer.invoke('orchestrator:getStatus', orchestratorTaskId),
+  orchestratorRetrySubtask: (args: {
+    orchestratorTaskId: string;
+    subtaskId: string;
+    cols?: number;
+    rows?: number;
+  }) => ipcRenderer.invoke('orchestrator:retrySubtask', args),
+  orchestratorCancelSubtask: (args: { orchestratorTaskId: string; subtaskId: string }) =>
+    ipcRenderer.invoke('orchestrator:cancelSubtask', args),
+  orchestratorRegeneratePlan: (orchestratorTaskId: string) =>
+    ipcRenderer.invoke('orchestrator:regeneratePlan', orchestratorTaskId),
   orchestratorUpdateStatus: (orchestratorTaskId: string, activityStates: Record<string, string>) =>
     ipcRenderer.invoke('orchestrator:updateStatus', orchestratorTaskId, activityStates),
   onOrchestratorSubtasksSpawned: (
