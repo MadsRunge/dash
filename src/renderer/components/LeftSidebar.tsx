@@ -8,6 +8,7 @@ import {
   Settings,
   GitBranch,
   GitGraph,
+  LayoutGrid,
   Globe,
   ChevronRight,
   ChevronDown,
@@ -32,6 +33,7 @@ interface LeftSidebarProps {
   onRestoreTask: (id: string) => void;
   onOpenSettings: () => void;
   onShowCommitGraph: (projectId: string) => void;
+  onShowKanban?: (projectId: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   taskActivity: Record<string, ActivityState>;
@@ -53,6 +55,7 @@ export function LeftSidebar({
   onRestoreTask,
   onOpenSettings,
   onShowCommitGraph,
+  onShowKanban,
   collapsed,
   onToggleCollapse,
   taskActivity,
@@ -272,6 +275,28 @@ export function LeftSidebar({
                       <GitGraph size={13} strokeWidth={2} />
                     </IconButton>
                   </div>
+
+                  {/* Kanban board — visible on active project, hover on others */}
+                  {onShowKanban && (
+                    <div
+                      className={`transition-opacity duration-150 ${
+                        isActive
+                          ? 'opacity-70 hover:opacity-100'
+                          : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                    >
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onShowKanban(project.id);
+                        }}
+                        title="Kanban board"
+                        size="sm"
+                      >
+                        <LayoutGrid size={13} strokeWidth={2} />
+                      </IconButton>
+                    </div>
+                  )}
 
                   {/* New task — visible on active project, hover on others */}
                   <div

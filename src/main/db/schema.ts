@@ -26,6 +26,7 @@ export const tasks = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    description: text('description'),
     branch: text('branch').notNull(),
     path: text('path').notNull(),
     aiProvider: text('ai_provider').notNull().default('claude'),

@@ -16,6 +16,7 @@ import { AddProjectModal } from './components/AddProjectModal';
 import { DeleteTaskModal } from './components/DeleteTaskModal';
 import { RemoteControlModal } from './components/RemoteControlModal';
 import { SettingsModal } from './components/SettingsModal';
+import { KanbanBoard } from './components/KanbanBoard';
 import { ToastContainer } from './components/Toast';
 import type {
   Project,
@@ -45,6 +46,9 @@ export function App() {
   );
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskModalProjectId, setTaskModalProjectId] = useState<string | null>(null);
+  const [kanbanInitialIssue, setKanbanInitialIssue] = useState<GithubIssue | null>(null);
+  const [showKanban, setShowKanban] = useState(false);
+  const [kanbanProjectId, setKanbanProjectId] = useState<string | null>(null);
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [cloneStatus, setCloneStatus] = useState<{ loading: boolean; error: string | null }>({
     loading: false,
@@ -626,6 +630,7 @@ export function App() {
     baseRef?: string,
     linkedIssues?: GithubIssue[],
     aiProvider?: string,
+    description?: string,
   ) {
     const targetProjectId = taskModalProjectId || activeProjectId;
     const targetProject = projects.find((p) => p.id === targetProjectId);
@@ -665,6 +670,7 @@ export function App() {
     const saveResp = await window.electronAPI.saveTask({
       projectId: targetProject.id,
       name,
+      description: description ?? null,
       branch,
       path: taskPath,
       useWorktree,
@@ -695,6 +701,13 @@ export function App() {
             issueNumbers: linkedIssues.map((i) => i.number),
             gitRemote: targetProject.gitRemote ?? undefined,
           },
+        });
+      } else if (description) {
+        window.electronAPI.ptyWriteTaskContext({
+          taskId,
+          cwd: taskPath,
+          prompt: description,
+          meta: { issueNumbers: [] },
         });
       }
 
@@ -939,6 +952,10 @@ export function App() {
                 setActiveProjectId(projectId);
                 setShowCommitGraph(true);
               }}
+              onShowKanban={(projectId) => {
+                setKanbanProjectId(projectId);
+                setShowKanban(true);
+              }}
               collapsed={sidebarCollapsed}
               onToggleCollapse={toggleSidebar}
               taskActivity={taskActivity}
@@ -1064,8 +1081,12 @@ export function App() {
           projectPath={
             projects.find((p) => p.id === (taskModalProjectId || activeProjectId))?.path ?? ''
           }
-          onClose={() => setShowTaskModal(false)}
+          onClose={() => {
+            setShowTaskModal(false);
+            setKanbanInitialIssue(null);
+          }}
           onCreate={handleCreateTask}
+          initialLinkedIssues={kanbanInitialIssue ? [kanbanInitialIssue] : undefined}
         />
       )}
 
@@ -1163,6 +1184,24 @@ export function App() {
           }}
         />
       )}
+
+      {showKanban &&
+        (() => {
+          const kanbanProject = projects.find((p) => p.id === kanbanProjectId);
+          return kanbanProject ? (
+            <KanbanBoard
+              projectPath={kanbanProject.path}
+              projectName={kanbanProject.name}
+              onClose={() => setShowKanban(false)}
+              onCreateTask={(issue) => {
+                setKanbanInitialIssue(issue);
+                setTaskModalProjectId(kanbanProjectId);
+                setShowKanban(false);
+                setShowTaskModal(true);
+              }}
+            />
+          ) : null;
+        })()}
 
       {showDiff && (
         <DiffViewer

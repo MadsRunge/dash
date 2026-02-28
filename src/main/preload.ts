@@ -139,6 +139,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('github:post-branch-comment', { cwd, issueNumber, branch }),
   githubLinkBranch: (cwd: string, issueNumber: number, branch: string) =>
     ipcRenderer.invoke('github:link-branch', { cwd, issueNumber, branch }),
+  githubCreateIssue: (args: {
+    cwd: string;
+    title: string;
+    body?: string;
+    labels?: string[];
+    assignees?: string[];
+  }) => ipcRenderer.invoke('github:create-issue', args),
+  githubListAllIssues: (cwd: string, state?: string) =>
+    ipcRenderer.invoke('github:list-all-issues', { cwd, state }),
+  githubListLabels: (cwd: string) => ipcRenderer.invoke('github:list-labels', { cwd }),
 
   // Git detection
   detectGit: (folderPath: string) => ipcRenderer.invoke('app:detectGit', folderPath),

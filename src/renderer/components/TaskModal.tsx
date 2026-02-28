@@ -22,11 +22,14 @@ interface TaskModalProps {
     baseRef?: string,
     linkedIssues?: GithubIssue[],
     aiProvider?: string,
+    description?: string,
   ) => void;
+  initialLinkedIssues?: GithubIssue[];
 }
 
-export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
+export function TaskModal({ projectPath, onClose, onCreate, initialLinkedIssues }: TaskModalProps) {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [useWorktree, setUseWorktree] = useState(true);
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem('yoloMode') === 'true');
   const [aiProvider, setAiProvider] = useState(
@@ -46,7 +49,9 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
   const [issueQuery, setIssueQuery] = useState('');
   const [issueResults, setIssueResults] = useState<GithubIssue[]>([]);
   const [issueLoading, setIssueLoading] = useState(false);
-  const [selectedIssues, setSelectedIssues] = useState<GithubIssue[]>([]);
+  const [selectedIssues, setSelectedIssues] = useState<GithubIssue[]>(
+    () => initialLinkedIssues ?? [],
+  );
   const [issueDropdownOpen, setIssueDropdownOpen] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -170,6 +175,7 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
         baseRef,
         selectedIssues.length > 0 ? selectedIssues : undefined,
         aiProvider,
+        description.trim() || undefined,
       );
       onClose();
     }
@@ -223,6 +229,20 @@ export function TaskModal({ projectPath, onClose, onCreate }: TaskModalProps) {
               placeholder="e.g. Fix auth bug, Add dark mode..."
               className="w-full px-3.5 py-2.5 rounded-lg bg-background border border-input/60 text-foreground text-[13px] placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring/50 transition-all duration-150"
               autoFocus
+            />
+          </div>
+
+          {/* Description */}
+          <div className="mb-5">
+            <label className="block text-[12px] font-medium text-muted-foreground/70 mb-2">
+              Description <span className="text-muted-foreground/40 font-normal">optional</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What should be done? Provide context for the AI..."
+              rows={3}
+              className="w-full px-3.5 py-2.5 rounded-lg bg-background border border-input/60 text-foreground text-[13px] placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring/50 transition-all duration-150 resize-none"
             />
           </div>
 

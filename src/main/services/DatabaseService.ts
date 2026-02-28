@@ -95,6 +95,7 @@ export class DatabaseService {
         id,
         projectId: data.projectId,
         name: data.name,
+        description: data.description ?? null,
         branch: data.branch,
         path: data.path,
         aiProvider: data.aiProvider ?? 'claude',
@@ -109,6 +110,7 @@ export class DatabaseService {
         target: tasks.id,
         set: {
           name: data.name,
+          description: data.description ?? null,
           branch: data.branch,
           path: data.path,
           aiProvider: data.aiProvider ?? 'claude',
@@ -210,6 +212,7 @@ export class DatabaseService {
       id: row.id,
       projectId: row.projectId,
       name: row.name,
+      description: row.description ?? null,
       branch: row.branch,
       path: row.path,
       aiProvider: row.aiProvider,

@@ -13,6 +13,7 @@ export interface Task {
   id: string;
   projectId: string;
   name: string;
+  description: string | null;
   branch: string;
   path: string;
   aiProvider: string;
@@ -204,6 +205,12 @@ export interface CommitDetail {
 
 // ── GitHub Types ────────────────────────────────────────────
 
+export interface GithubLabel {
+  name: string;
+  color: string; // hex without #
+  description: string;
+}
+
 export interface GithubIssue {
   number: number;
   title: string;
@@ -212,6 +219,10 @@ export interface GithubIssue {
   body: string;
   url: string;
   assignees?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  comments?: number;
+  milestone?: { number: number; title: string } | null;
 }
 
 // ── Remote Control Types ────────────────────────────────────

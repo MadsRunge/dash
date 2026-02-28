@@ -9,6 +9,7 @@ import type {
   DiffResult,
   BranchInfo,
   GithubIssue,
+  GithubLabel,
   CommitGraphData,
   CommitDetail,
   RemoteControlState,
@@ -163,6 +164,15 @@ export interface ElectronAPI {
     issueNumber: number,
     branch: string,
   ) => Promise<IpcResponse<void>>;
+  githubCreateIssue: (args: {
+    cwd: string;
+    title: string;
+    body?: string;
+    labels?: string[];
+    assignees?: string[];
+  }) => Promise<IpcResponse<GithubIssue>>;
+  githubListAllIssues: (cwd: string, state?: string) => Promise<IpcResponse<GithubIssue[]>>;
+  githubListLabels: (cwd: string) => Promise<IpcResponse<GithubLabel[]>>;
 
   // Git detection
   detectGit: (
