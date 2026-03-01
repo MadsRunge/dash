@@ -150,7 +150,7 @@ export class GeminiProvider implements AiProvider {
   getOutputParser(): OutputParser {
     return new GenericOutputParser({
       // Gemini CLI interactive prompt is "> " at the start of a line
-      promptPattern: /(?:^|\n)>\s+$/m,
+      promptPattern: /(?:^|\n)\s*>\s*$/m,
       // Gemini uses Google OAuth — these indicate auth is needed
       authPattern:
         /(please\s+sign\s+in|visit\s+this\s+url|authorization\s+required|not\s+authenticated|please\s+run\s+gemini\s+auth)/i,

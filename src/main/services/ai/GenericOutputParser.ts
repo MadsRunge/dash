@@ -42,6 +42,7 @@ export class GenericOutputParser implements OutputParser {
     if (this.buf.length > 8000) {
       this.buf = this.buf.slice(-8000);
     }
+    const tail = this.buf.slice(-1600);
 
     // 1) Auth detection (latch)
     if (this.config.authPattern.test(this.buf)) {
@@ -62,20 +63,22 @@ export class GenericOutputParser implements OutputParser {
       }
     }
 
-    // 3) Awaiting user input
-    if (this.config.awaitPattern.test(this.buf)) {
-      if (this.state !== 'awaiting_input') {
-        this.state = 'awaiting_input';
-        out.push({ type: 'state', state: 'awaiting_input', reason: 'CLI is waiting for input' });
+    // 3) Prompt = ready
+    // Evaluate prompt before awaiting-input to avoid latching on stale
+    // "press enter / y/n" text that can appear earlier in the buffer.
+    if (this.config.promptPattern.test(tail)) {
+      if (this.state !== 'ready') {
+        this.state = 'ready';
+        out.push({ type: 'state', state: 'ready' });
       }
       return out;
     }
 
-    // 4) Prompt = ready
-    if (this.config.promptPattern.test(this.buf)) {
-      if (this.state !== 'ready') {
-        this.state = 'ready';
-        out.push({ type: 'state', state: 'ready' });
+    // 4) Awaiting user input
+    if (this.config.awaitPattern.test(tail)) {
+      if (this.state !== 'awaiting_input') {
+        this.state = 'awaiting_input';
+        out.push({ type: 'state', state: 'awaiting_input', reason: 'CLI is waiting for input' });
       }
       return out;
     }
