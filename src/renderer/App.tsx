@@ -983,7 +983,9 @@ export function App() {
       }
     }
 
-    // Clean up shell terminal session
+    // Ensure both main task PTY and shell PTY are fully terminated.
+    window.electronAPI.ptyKill(task.id);
+    sessionRegistry.dispose(task.id);
     sessionRegistry.dispose(`shell:${task.id}`);
 
     await window.electronAPI.deleteTask(task.id);

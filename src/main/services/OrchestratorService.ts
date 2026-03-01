@@ -3,6 +3,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import { getRawDb } from '../db/client';
 import { DatabaseService } from './DatabaseService';
 import { WorktreeService } from './WorktreeService';
@@ -52,6 +53,11 @@ interface PreparedSubtask {
 interface SpawnFailure {
   index: number;
   message: string;
+}
+
+interface PlanStateFile {
+  lastSpawnedPlanHash?: string;
+  updatedAt?: string;
 }
 
 export type MergeSubtaskState = 'merged' | 'skipped' | 'conflict' | 'failed';
@@ -133,12 +139,12 @@ export function startWatching(
   fs.mkdirSync(dashDir, { recursive: true });
 
   if (fs.existsSync(planPath)) {
-    processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned);
+    processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned, { force: false });
   }
 
   const watcher = fs.watch(dashDir, { persistent: false }, (_event, filename) => {
     if (filename === 'subtasks.json' && fs.existsSync(planPath)) {
-      processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned);
+      processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned, { force: false });
     }
   });
 
@@ -197,7 +203,7 @@ export async function regeneratePlan(
     'Manual plan regeneration requested',
   );
 
-  await processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned);
+  await processPlanFile(planPath, orchestratorTask, project, onSubtasksSpawned, { force: true });
   return { ok: true };
 }
 
@@ -206,6 +212,7 @@ async function processPlanFile(
   orchestratorTask: Task,
   project: Project,
   onSubtasksSpawned: (subtasks: Task[]) => void,
+  options?: { force?: boolean },
 ): Promise<void> {
   const run = ensureActiveRun(orchestratorTask);
   try {
@@ -214,6 +221,54 @@ async function processPlanFile(
 
     DatabaseService.transitionOrchestratorRun(run.id, 'planned');
     const content = fs.readFileSync(planPath, 'utf-8');
+    const planHash = hashPlanContent(content);
+    const existing = DatabaseService.getSubtasks(orchestratorTask.id);
+    const planState = readPlanState(orchestratorTask.path);
+    const latestRun = DatabaseService.getLatestOrchestratorRun(orchestratorTask.id);
+    const hasSpawnHistory = latestRun
+      ? DatabaseService.getOrchestratorEvents(latestRun.id, 200).some(
+          (event) => event.type === 'subtasks.spawned',
+        )
+      : false;
+
+    if (
+      !options?.force &&
+      existing.length === 0 &&
+      !planState?.lastSpawnedPlanHash &&
+      hasSpawnHistory
+    ) {
+      // Migration-safe guard: older runs (before plan-state existed) should not
+      // automatically respawn deleted subtasks on restart.
+      writePlanState(orchestratorTask.path, {
+        lastSpawnedPlanHash: planHash,
+        updatedAt: new Date().toISOString(),
+      });
+      logRunEvent(
+        run.id,
+        orchestratorTask.id,
+        'plan.legacy_state.adopted',
+        'Adopted existing spawn history; skipping automatic respawn',
+        { level: 'warn' },
+      );
+      return;
+    }
+
+    if (
+      !options?.force &&
+      existing.length === 0 &&
+      planState?.lastSpawnedPlanHash &&
+      planState.lastSpawnedPlanHash === planHash
+    ) {
+      logRunEvent(
+        run.id,
+        orchestratorTask.id,
+        'plan.unchanged.skipped',
+        'Plan unchanged since previous spawn; skipping automatic respawn',
+        { level: 'warn' },
+      );
+      return;
+    }
+
     const parsed: unknown = JSON.parse(content);
     const validation = validateSubtaskPlan(parsed, {
       maxSubtasks: appSettings.orchestrationGlobalMaxSubtasks ?? undefined,
@@ -239,7 +294,6 @@ async function processPlanFile(
       return;
     }
 
-    const existing = DatabaseService.getSubtasks(orchestratorTask.id);
     if (existing.length > 0) {
       DatabaseService.transitionOrchestratorRun(run.id, 'running');
       return;
@@ -271,6 +325,10 @@ async function processPlanFile(
       });
       return;
     }
+    writePlanState(orchestratorTask.path, {
+      lastSpawnedPlanHash: planHash,
+      updatedAt: new Date().toISOString(),
+    });
     DatabaseService.transitionOrchestratorRun(run.id, 'running');
     logRunEvent(
       run.id,
@@ -822,6 +880,32 @@ function compactDetails(lines: string[]): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .slice(0, 20);
+}
+
+function hashPlanContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function readPlanState(orchestratorPath: string): PlanStateFile | null {
+  try {
+    const statePath = path.join(orchestratorPath, '.dash', 'plan-state.json');
+    if (!fs.existsSync(statePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as PlanStateFile;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writePlanState(orchestratorPath: string, state: PlanStateFile): void {
+  try {
+    fs.mkdirSync(path.join(orchestratorPath, '.dash'), { recursive: true });
+    const statePath = path.join(orchestratorPath, '.dash', 'plan-state.json');
+    fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+  } catch {
+    // Non-fatal
+  }
 }
 
 function formatSubtaskPrompt(sub: SubtaskDefinition): string {
