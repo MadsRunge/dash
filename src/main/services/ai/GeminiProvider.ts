@@ -28,8 +28,22 @@ export class GeminiProvider implements AiProvider {
       // Not in PATH
     }
 
+    try {
+      const shell = process.env.SHELL || '/bin/zsh';
+      const { stdout } = await execFileAsync(shell, ['-lc', 'command -v gemini']);
+      const resolved = stdout.trim();
+      if (resolved) {
+        this.cachedPath = resolved;
+        return this.cachedPath;
+      }
+    } catch {
+      // Not found via login shell PATH
+    }
+
     const home = os.homedir();
+    const nvmCandidates = this.getNvmCandidates(home);
     const candidates = [
+      ...nvmCandidates,
       path.join(home, '.local/bin/gemini'),
       '/opt/homebrew/bin/gemini',
       '/usr/local/bin/gemini',
@@ -46,6 +60,29 @@ export class GeminiProvider implements AiProvider {
     }
 
     throw new Error('Gemini CLI not found. Please ensure it is installed and in your PATH.');
+  }
+
+  private getNvmCandidates(home: string): string[] {
+    const out: string[] = [];
+    const nvmBin = process.env.NVM_BIN;
+    if (nvmBin) {
+      out.push(path.join(nvmBin, 'gemini'));
+    }
+
+    const versionsDir = path.join(home, '.nvm', 'versions', 'node');
+    try {
+      const dirs = fs
+        .readdirSync(versionsDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+      for (const dir of dirs.slice(0, 5)) {
+        out.push(path.join(versionsDir, dir, 'bin', 'gemini'));
+      }
+    } catch {
+      // Ignore missing nvm dirs
+    }
+    return out;
   }
 
   getSpawnArgs(options: SpawnOptions): string[] {

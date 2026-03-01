@@ -575,13 +575,26 @@ export class TerminalSessionManager {
       isDirectSpawn = resp.data?.isDirectSpawn ?? true;
       taskContextMeta = resp.data?.taskContextMeta ?? null;
     } else {
-      // Fall back to shell — warn the user so they know why they see a shell
+      // Fall back to shell — surface the actual provider/startup error.
+      const reason = (resp.error || 'Unknown start error').replace(/^Error:\s*/i, '');
       this.terminal.writeln(
-        '\x1b[33m⚠ Could not start Claude CLI directly — falling back to shell.\x1b[0m',
+        '\x1b[33m⚠ Could not start AI CLI directly — falling back to shell.\x1b[0m',
       );
-      this.terminal.writeln(
-        '\x1b[33m  Install with: npm install -g @anthropic-ai/claude-code\x1b[0m\r\n',
-      );
+      this.terminal.writeln(`\x1b[33m  Reason: ${reason}\x1b[0m`);
+
+      const reasonLower = reason.toLowerCase();
+      if (reasonLower.includes('claude cli not found')) {
+        this.terminal.writeln(
+          '\x1b[33m  Install with: npm install -g @anthropic-ai/claude-code\x1b[0m',
+        );
+      } else if (reasonLower.includes('codex cli not found')) {
+        this.terminal.writeln('\x1b[33m  Install with: npm install -g @openai/codex\x1b[0m');
+      } else if (reasonLower.includes('gemini cli not found')) {
+        this.terminal.writeln(
+          '\x1b[33m  Ensure `gemini` is installed and available in PATH/NVM.\x1b[0m',
+        );
+      }
+      this.terminal.writeln('');
 
       const shellResp = await window.electronAPI.ptyStart({
         id: this.id,
