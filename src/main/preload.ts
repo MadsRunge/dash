@@ -4,6 +4,9 @@ import type { ActivityState, Task } from '../shared/types';
 contextBridge.exposeInMainWorld('electronAPI', {
   // App
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getAppSettings: () => ipcRenderer.invoke('app:getSettings'),
+  saveAppSettings: (settings: { orchestrationGlobalMaxSubtasks?: number | null }) =>
+    ipcRenderer.invoke('app:saveSettings', settings),
   getPlatform: () => process.platform,
 
   // Dialogs

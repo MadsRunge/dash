@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { getRawDb } from '../db/client';
 import { DatabaseService } from './DatabaseService';
 import { WorktreeService } from './WorktreeService';
+import { getAppSettings } from './AppSettingsService';
 import type { OrchestratorRun, Project, Task, WorktreeInfo } from '../../shared/types';
 
 const execFileAsync = promisify(execFile);
@@ -208,12 +209,15 @@ async function processPlanFile(
 ): Promise<void> {
   const run = ensureActiveRun(orchestratorTask);
   try {
+    const lockedProvider = normalizeProvider(orchestratorTask.aiProvider, 'claude');
+    const appSettings = getAppSettings();
+
     DatabaseService.transitionOrchestratorRun(run.id, 'planned');
     const content = fs.readFileSync(planPath, 'utf-8');
     const parsed: unknown = JSON.parse(content);
     const validation = validateSubtaskPlan(parsed, {
-      maxSubtasks: project.orchestrationMaxSubtasks,
-      allowedProviders: project.orchestrationAllowedProviders,
+      maxSubtasks: appSettings.orchestrationGlobalMaxSubtasks ?? undefined,
+      allowedProviders: [lockedProvider],
     });
     if (!validation.ok || !validation.plan) {
       updateStatusFile(orchestratorTask.path, [], {}, validation.error);
@@ -248,11 +252,18 @@ async function processPlanFile(
       'plan.accepted',
       'Plan accepted and spawning started',
       {
-        payload: { subtaskCount: validation.plan.subtasks.length },
+        payload: { subtaskCount: validation.plan.subtasks.length, provider: lockedProvider },
       },
     );
 
-    const spawnedTasks = await spawnSubtasks(validation.plan, orchestratorTask, project);
+    const lockedPlan: SubtaskPlan = {
+      subtasks: validation.plan.subtasks.map((subtask) => ({
+        ...subtask,
+        provider: lockedProvider,
+      })),
+    };
+
+    const spawnedTasks = await spawnSubtasks(lockedPlan, orchestratorTask, project);
     if (spawnedTasks.length === 0) {
       DatabaseService.transitionOrchestratorRun(run.id, 'failed', 'Spawn failed');
       logRunEvent(run.id, orchestratorTask.id, 'subtasks.spawn_failed', 'Subtask spawn failed', {
@@ -837,7 +848,11 @@ function validateSubtaskPlan(
   );
   const allowedProviders =
     providerCandidates.length > 0 ? providerCandidates : ['claude', 'gemini', 'codex'];
-  const maxSubtasks = Math.max(1, Math.min(8, Math.round(policy?.maxSubtasks ?? 8)));
+  const maxSubtasksRaw = policy?.maxSubtasks;
+  const maxSubtasks =
+    typeof maxSubtasksRaw === 'number' && Number.isFinite(maxSubtasksRaw) && maxSubtasksRaw > 0
+      ? Math.floor(maxSubtasksRaw)
+      : null;
 
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return {
@@ -854,12 +869,22 @@ function validateSubtaskPlan(
     };
   }
 
-  if (subtasksRaw.length < 1 || subtasksRaw.length > maxSubtasks) {
+  if (subtasksRaw.length < 1) {
     return {
       ok: false,
       error: {
         code: 'invalid_plan',
-        message: `Plan must contain between 1 and ${maxSubtasks} subtasks`,
+        message: 'Plan must contain at least 1 subtask',
+      },
+    };
+  }
+
+  if (maxSubtasks !== null && subtasksRaw.length > maxSubtasks) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_plan',
+        message: `Plan exceeds global subtask cap (${maxSubtasks})`,
       },
     };
   }

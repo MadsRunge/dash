@@ -19,6 +19,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { KanbanBoard } from './components/KanbanBoard';
 import { ToastContainer } from './components/Toast';
 import type {
+  AppSettings,
   Project,
   Task,
   GitStatus,
@@ -121,6 +122,9 @@ export function App() {
     if (stored === null) return undefined; // "default" — key absent
     return stored; // '' for "none", or custom text
   });
+  const [globalOrchestrationSubtaskCap, setGlobalOrchestrationSubtaskCap] = useState<number | null>(
+    null,
+  );
   // Sync desktop notification settings to main process
   useEffect(() => {
     window.electronAPI.setDesktopNotification?.({
@@ -196,6 +200,7 @@ export function App() {
   // Load projects on mount
   useEffect(() => {
     loadProjects();
+    loadAppSettings();
   }, []);
 
   // Save all terminal snapshots when app is about to quit
@@ -651,6 +656,14 @@ export function App() {
     }
   }
 
+  async function loadAppSettings() {
+    const resp = await window.electronAPI.getAppSettings();
+    if (resp.success && resp.data) {
+      const settings = resp.data as AppSettings;
+      setGlobalOrchestrationSubtaskCap(settings.orchestrationGlobalMaxSubtasks ?? null);
+    }
+  }
+
   async function loadTasksForProject(projectId: string) {
     const resp = await window.electronAPI.getTasks(projectId);
     if (resp.success && resp.data) {
@@ -1082,7 +1095,6 @@ export function App() {
   }
 
   async function handleSaveProjectPolicy(policy: {
-    maxSubtasks: number;
     allowedProviders: string[];
     autoMergePolicy: 'manual' | 'when_all_done';
   }) {
@@ -1094,11 +1106,23 @@ export function App() {
       gitRemote: activeProject.gitRemote,
       gitBranch: activeProject.gitBranch,
       baseRef: activeProject.baseRef,
-      orchestrationMaxSubtasks: policy.maxSubtasks,
       orchestrationAllowedProviders: policy.allowedProviders,
       orchestrationAutoMergePolicy: policy.autoMergePolicy,
     });
     await loadProjects();
+  }
+
+  async function handleGlobalOrchestrationSubtaskCapChange(value: number | null) {
+    const normalized =
+      value != null && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+    const resp = await window.electronAPI.saveAppSettings({
+      orchestrationGlobalMaxSubtasks: normalized,
+    });
+    if (resp.success && resp.data) {
+      setGlobalOrchestrationSubtaskCap(resp.data.orchestrationGlobalMaxSubtasks ?? null);
+      return;
+    }
+    setGlobalOrchestrationSubtaskCap(normalized);
   }
 
   return (
@@ -1389,6 +1413,12 @@ export function App() {
             } else {
               localStorage.setItem('commitAttribution', v);
             }
+          }}
+          globalOrchestrationSubtaskCap={globalOrchestrationSubtaskCap}
+          onGlobalOrchestrationSubtaskCapChange={(value) => {
+            handleGlobalOrchestrationSubtaskCapChange(value).catch(() => {
+              // Best effort
+            });
           }}
           keybindings={keybindings}
           onKeybindingsChange={(b) => {

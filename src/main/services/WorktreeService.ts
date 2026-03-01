@@ -147,7 +147,10 @@ export class WorktreeService {
    * Resolve the base ref for worktree creation.
    */
   async resolveBaseRef(projectPath: string, override?: string): Promise<string> {
-    if (override) return override;
+    const explicit = this.normalizeBaseRef(override);
+    if (explicit && (await this.isValidRef(projectPath, explicit))) {
+      return explicit;
+    }
 
     // Try to get remote HEAD
     try {
@@ -156,7 +159,16 @@ export class WorktreeService {
         timeout: 5000,
       });
       const match = stdout.match(/HEAD branch:\s*(\S+)/);
-      if (match) return match[1];
+      const remoteHead = this.normalizeBaseRef(match?.[1]);
+      if (remoteHead) {
+        if (await this.isValidRef(projectPath, remoteHead)) {
+          return remoteHead;
+        }
+        const remoteRef = `origin/${remoteHead}`;
+        if (await this.isValidRef(projectPath, remoteRef)) {
+          return remoteRef;
+        }
+      }
     } catch {
       // Ignore
     }
@@ -166,13 +178,40 @@ export class WorktreeService {
       const { stdout } = await execFileAsync('git', ['branch', '--show-current'], {
         cwd: projectPath,
       });
-      const branch = stdout.trim();
-      if (branch) return branch;
+      const branch = this.normalizeBaseRef(stdout.trim());
+      if (branch && (await this.isValidRef(projectPath, branch))) {
+        return branch;
+      }
     } catch {
       // Ignore
     }
 
+    // Prefer HEAD when available; it's robust even on fresh repos.
+    if (await this.isValidRef(projectPath, 'HEAD')) {
+      return 'HEAD';
+    }
+
     return 'main';
+  }
+
+  private normalizeBaseRef(ref?: string): string | null {
+    if (!ref) return null;
+    const value = ref.trim();
+    if (!value) return null;
+    if (value === '(unknown)' || value.toLowerCase() === 'unknown') return null;
+    return value;
+  }
+
+  private async isValidRef(projectPath: string, ref: string): Promise<boolean> {
+    try {
+      await execFileAsync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], {
+        cwd: projectPath,
+        timeout: 3000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

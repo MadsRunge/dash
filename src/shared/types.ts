@@ -12,6 +12,10 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface AppSettings {
+  orchestrationGlobalMaxSubtasks: number | null;
+}
+
 export interface Task {
   id: string;
   projectId: string;

@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
+import { getAppSettings, saveAppSettings } from '../services/AppSettingsService';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +42,25 @@ export function registerAppIpc(): void {
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion();
   });
+
+  ipcMain.handle('app:getSettings', () => {
+    try {
+      return { success: true, data: getAppSettings() };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle(
+    'app:saveSettings',
+    (_event, patch: { orchestrationGlobalMaxSubtasks?: number | null }) => {
+      try {
+        return { success: true, data: saveAppSettings(patch) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    },
+  );
 
   ipcMain.handle('app:openExternal', async (_event, url: string) => {
     await shell.openExternal(url);

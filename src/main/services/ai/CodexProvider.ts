@@ -52,7 +52,8 @@ export class CodexProvider implements AiProvider {
       // 'codex resume --last' resumes the most recent session — no initial prompt needed
       const args = ['resume', '--last'];
       if (options.autoApprove) {
-        args.push('--full-auto');
+        // Keep sandboxed execution within workspace boundaries.
+        args.push('--sandbox', 'workspace-write', '--ask-for-approval', 'on-request');
       }
       return args;
     }
@@ -70,8 +71,8 @@ export class CodexProvider implements AiProvider {
     }
 
     if (options.autoApprove) {
-      // --full-auto sets --ask-for-approval on-request + --sandbox workspace-write
-      args.push('--full-auto');
+      // Keep sandboxed execution within workspace boundaries.
+      args.push('--sandbox', 'workspace-write', '--ask-for-approval', 'on-request');
     }
 
     return args;
@@ -134,8 +135,7 @@ export class CodexProvider implements AiProvider {
       );
     }
 
-    // Trust the worktree folder in Codex's config so --full-auto works.
-    // Codex refuses privileged approval modes in untrusted folders.
+    // Trust only this worktree folder to skip startup trust prompts.
     this.trustFolder(options.cwd);
   }
 

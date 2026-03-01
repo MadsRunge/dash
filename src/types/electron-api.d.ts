@@ -1,5 +1,6 @@
 import type {
   IpcResponse,
+  AppSettings,
   Project,
   Task,
   Conversation,
@@ -19,6 +20,10 @@ import type {
 export interface ElectronAPI {
   // App
   getAppVersion: () => Promise<string>;
+  getAppSettings: () => Promise<IpcResponse<AppSettings>>;
+  saveAppSettings: (settings: {
+    orchestrationGlobalMaxSubtasks?: number | null;
+  }) => Promise<IpcResponse<AppSettings>>;
   getPlatform: () => string;
 
   // Dialogs

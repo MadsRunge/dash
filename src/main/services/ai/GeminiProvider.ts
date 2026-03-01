@@ -62,7 +62,8 @@ export class GeminiProvider implements AiProvider {
     }
 
     if (options.autoApprove) {
-      args.push('-y');
+      // Intentionally do not add global auto-confirm flags here.
+      // We keep trust enabled for startup UX, but avoid blanket approval behavior.
     }
 
     if (options.resume) {
@@ -110,8 +111,7 @@ export class GeminiProvider implements AiProvider {
       );
     }
 
-    // Trust the worktree folder in Gemini's settings so -y (auto-approve) works.
-    // Gemini refuses privileged approval modes in untrusted folders.
+    // Trust only this worktree folder to skip startup trust prompts.
     this.trustFolder(options.cwd);
   }
 

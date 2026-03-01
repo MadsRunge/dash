@@ -65,7 +65,9 @@ export class ClaudeProvider implements AiProvider {
       args.push('-c', '-r');
     }
     if (options.autoApprove) {
-      args.push('--dangerously-skip-permissions');
+      // Safer auto mode: allow edit flow without full permission bypass.
+      // This avoids granting broad unrestricted local access.
+      args.push('--permission-mode', 'acceptEdits');
     }
     return args;
   }
@@ -131,11 +133,15 @@ export class ClaudeProvider implements AiProvider {
         payload.meta = options.meta;
       }
       try {
-        fs.writeFileSync(contextPath, JSON.stringify(payload, null, 2) + '\\n');
+        fs.writeFileSync(contextPath, JSON.stringify(payload, null, 2) + '\n');
       } catch (err) {
         console.error('[ClaudeProvider] Failed to write task-context.json:', err);
       }
     }
+
+    // Trust the worktree folder in Claude's project config to suppress
+    // the initial "Do you trust this folder?" prompt in spawned subtasks.
+    this.trustFolder(options.cwd);
 
     // Write settings.local.json
     this.writeHookSettings(options.cwd, options.id, options.commitAttributionSetting);
@@ -230,9 +236,52 @@ export class ClaudeProvider implements AiProvider {
         attributionSetting === undefined ? DASH_DEFAULT_ATTRIBUTION : attributionSetting;
       merged.attribution = { commit: effectiveAttribution };
 
-      fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\\n');
+      fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
     } catch (err) {
       console.error('[ClaudeProvider] Failed to write settings.local.json:', err);
+    }
+  }
+
+  private trustFolder(folderPath: string): void {
+    const configPath = path.join(os.homedir(), '.claude.json');
+    try {
+      const parsed = fs.existsSync(configPath)
+        ? (JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>)
+        : {};
+      const projects =
+        parsed.projects && typeof parsed.projects === 'object'
+          ? (parsed.projects as Record<string, Record<string, unknown>>)
+          : {};
+
+      const candidates = new Set<string>([folderPath]);
+      try {
+        candidates.add(fs.realpathSync(folderPath));
+      } catch {
+        // Ignore realpath resolution issues
+      }
+      if (!folderPath.startsWith('/private/')) {
+        candidates.add(`/private${folderPath}`);
+      } else {
+        candidates.add(folderPath.replace(/^\/private/, ''));
+      }
+
+      let changed = false;
+      for (const candidate of candidates) {
+        const current =
+          projects[candidate] && typeof projects[candidate] === 'object' ? projects[candidate] : {};
+        if (current.hasTrustDialogAccepted === true) continue;
+        projects[candidate] = {
+          ...current,
+          hasTrustDialogAccepted: true,
+        };
+        changed = true;
+      }
+
+      if (!changed) return;
+      parsed.projects = projects;
+      fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2));
+    } catch {
+      // Non-fatal — Claude may ask for trust manually if we cannot update config
     }
   }
 

@@ -32,10 +32,11 @@ interface SettingsModalProps {
   onTerminalThemeChange: (id: string) => void;
   commitAttribution: string | undefined;
   onCommitAttributionChange: (value: string | undefined) => void;
+  globalOrchestrationSubtaskCap: number | null;
+  onGlobalOrchestrationSubtaskCapChange: (value: number | null) => void;
   activeProjectPath?: string;
   activeProject?: Project | null;
   onSaveProjectPolicy?: (policy: {
-    maxSubtasks: number;
     allowedProviders: string[];
     autoMergePolicy: 'manual' | 'when_all_done';
   }) => Promise<void> | void;
@@ -137,6 +138,8 @@ export function SettingsModal({
   onTerminalThemeChange,
   commitAttribution,
   onCommitAttributionChange,
+  globalOrchestrationSubtaskCap,
+  onGlobalOrchestrationSubtaskCapChange,
   activeProjectPath,
   activeProject,
   onSaveProjectPolicy,
@@ -154,7 +157,6 @@ export function SettingsModal({
   } | null>(null);
   const [appVersion, setAppVersion] = useState('');
   const [claudeDefaultAttribution, setClaudeDefaultAttribution] = useState<string | null>(null);
-  const [projectMaxSubtasks, setProjectMaxSubtasks] = useState(5);
   const [projectAllowedProviders, setProjectAllowedProviders] = useState<string[]>([
     'claude',
     'gemini',
@@ -163,6 +165,7 @@ export function SettingsModal({
   const [projectAutoMergePolicy, setProjectAutoMergePolicy] = useState<'manual' | 'when_all_done'>(
     'manual',
   );
+  const [globalCapDraft, setGlobalCapDraft] = useState('');
 
   useEffect(() => {
     window.electronAPI.detectClaude().then((resp) => {
@@ -178,10 +181,15 @@ export function SettingsModal({
 
   useEffect(() => {
     if (!activeProject) return;
-    setProjectMaxSubtasks(activeProject.orchestrationMaxSubtasks);
     setProjectAllowedProviders(activeProject.orchestrationAllowedProviders);
     setProjectAutoMergePolicy(activeProject.orchestrationAutoMergePolicy);
   }, [activeProject]);
+
+  useEffect(() => {
+    setGlobalCapDraft(
+      globalOrchestrationSubtaskCap == null ? '' : String(globalOrchestrationSubtaskCap),
+    );
+  }, [globalOrchestrationSubtaskCap]);
 
   function handleBindingChange(id: string, updated: KeyBinding) {
     onKeybindingsChange({ ...keybindings, [id]: updated });
@@ -214,7 +222,6 @@ export function SettingsModal({
     if (!onSaveProjectPolicy || !activeProject) return;
     const providers = projectAllowedProviders.length > 0 ? projectAllowedProviders : ['claude'];
     await onSaveProjectPolicy({
-      maxSubtasks: Math.max(1, Math.min(8, Math.round(projectMaxSubtasks || 1))),
       allowedProviders: providers,
       autoMergePolicy: projectAutoMergePolicy,
     });
@@ -228,6 +235,18 @@ export function SettingsModal({
       }
       return [...prev, provider];
     });
+  }
+
+  function commitGlobalCap(raw: string): void {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      onGlobalOrchestrationSubtaskCapChange(null);
+      setGlobalCapDraft('');
+      return;
+    }
+    const normalized = Math.floor(parsed);
+    onGlobalOrchestrationSubtaskCapChange(normalized);
+    setGlobalCapDraft(String(normalized));
   }
 
   return (
@@ -475,6 +494,68 @@ export function SettingsModal({
               </div>
 
               {/* Project Orchestration Policy */}
+              <div>
+                <label className="block text-[12px] font-medium text-foreground mb-3">
+                  Global Orchestrator Subtask Cap
+                </label>
+                <div className="space-y-3 p-3 rounded-lg border border-border/50 bg-accent/20">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => onGlobalOrchestrationSubtaskCapChange(null)}
+                      className={`px-3 py-2.5 rounded-lg text-[12px] border transition-all duration-150 ${
+                        globalOrchestrationSubtaskCap == null
+                          ? 'border-primary/40 bg-primary/8 text-foreground ring-1 ring-primary/20 font-medium'
+                          : 'border-border/60 text-foreground/60 hover:bg-accent/40 hover:text-foreground'
+                      }`}
+                    >
+                      No cap (default)
+                    </button>
+                    <button
+                      onClick={() => {
+                        const draft = Number(globalCapDraft);
+                        const fallback =
+                          Number.isFinite(draft) && draft > 0 ? Math.floor(draft) : 8;
+                        onGlobalOrchestrationSubtaskCapChange(
+                          globalOrchestrationSubtaskCap ?? fallback,
+                        );
+                      }}
+                      className={`px-3 py-2.5 rounded-lg text-[12px] border transition-all duration-150 ${
+                        globalOrchestrationSubtaskCap != null
+                          ? 'border-primary/40 bg-primary/8 text-foreground ring-1 ring-primary/20 font-medium'
+                          : 'border-border/60 text-foreground/60 hover:bg-accent/40 hover:text-foreground'
+                      }`}
+                    >
+                      Use global cap
+                    </button>
+                  </div>
+
+                  {globalOrchestrationSubtaskCap != null && (
+                    <div>
+                      <label className="block text-[11px] text-foreground/70 mb-1.5">
+                        Max subtasks globally
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={globalCapDraft}
+                        onChange={(e) => setGlobalCapDraft(e.target.value)}
+                        onBlur={() => commitGlobalCap(globalCapDraft)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            commitGlobalCap(globalCapDraft);
+                          }
+                        }}
+                        className="w-28 px-2.5 py-1.5 rounded-lg bg-background border border-input/60 text-foreground text-[12px] focus:outline-none focus:ring-2 focus:ring-ring/30"
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-foreground/70">
+                    Default is no max; orchestrator decides subtask count by scope.
+                  </p>
+                </div>
+              </div>
+
               {activeProject && (
                 <div>
                   <label className="block text-[12px] font-medium text-foreground mb-3">
@@ -482,19 +563,9 @@ export function SettingsModal({
                   </label>
 
                   <div className="space-y-3 p-3 rounded-lg border border-border/50 bg-accent/20">
-                    <div>
-                      <label className="block text-[11px] text-foreground/70 mb-1.5">
-                        Max subtasks
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={8}
-                        value={projectMaxSubtasks}
-                        onChange={(e) => setProjectMaxSubtasks(Number(e.target.value || 1))}
-                        className="w-24 px-2.5 py-1.5 rounded-lg bg-background border border-input/60 text-foreground text-[12px] focus:outline-none focus:ring-2 focus:ring-ring/30"
-                      />
-                    </div>
+                    <p className="text-[11px] text-foreground/70">
+                      Subtask count is AI-driven and scales with task complexity.
+                    </p>
 
                     <div>
                       <label className="block text-[11px] text-foreground/70 mb-1.5">
