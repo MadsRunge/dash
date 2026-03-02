@@ -12,6 +12,7 @@ import {
   writeTaskContext,
   sendRemoteControl,
 } from '../services/ptyManager';
+import { DatabaseService } from '../services/DatabaseService';
 import { terminalSnapshotService } from '../services/TerminalSnapshotService';
 import { activityMonitor } from '../services/ActivityMonitor';
 import { remoteControlService } from '../services/remoteControlService';
@@ -123,10 +124,15 @@ export function registerPtyIpc(): void {
       try {
         // For orchestrated subtasks, prompt.txt contains the full formatted prompt
         // (including blackboard URL). Prefer it over the raw description from the renderer.
+        // Only do this for subtasks (tasks with orchestratorTaskId) — not orchestrator tasks
+        // or regular tasks, which must use args.prompt to avoid double-formatting.
+        const task = DatabaseService.getTask(args.taskId);
+        const isSubtask = !!task?.orchestratorTaskId;
         const promptPath = path.join(args.cwd, '.dash', 'prompt.txt');
-        const prompt = fs.existsSync(promptPath)
-          ? fs.readFileSync(promptPath, 'utf-8')
-          : args.prompt;
+        const prompt =
+          isSubtask && fs.existsSync(promptPath)
+            ? fs.readFileSync(promptPath, 'utf-8')
+            : args.prompt;
         writeTaskContext(args.taskId, args.cwd, prompt, args.meta, args.isOrchestrated);
         return { success: true };
       } catch (error) {
