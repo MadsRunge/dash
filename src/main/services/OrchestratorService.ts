@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { createHash } from 'crypto';
 import { getRawDb } from '../db/client';
 import { DatabaseService } from './DatabaseService';
+import { hookServer } from './HookServer';
 import { WorktreeService } from './WorktreeService';
 import { getAppSettings } from './AppSettingsService';
 import type { OrchestratorRun, Project, Task, WorktreeInfo } from '../../shared/types';
@@ -326,6 +327,12 @@ async function processPlanFile(
       })),
     };
 
+    const blackboardPath = path.join(orchestratorTask.path, '.dash', 'blackboard.md');
+    fs.writeFileSync(
+      blackboardPath,
+      `# Shared Blackboard\nStarted: ${new Date().toISOString()}\n\n`,
+    );
+
     const spawnedTasks = await spawnSubtasks(lockedPlan, orchestratorTask, project);
     if (spawnedTasks.length === 0) {
       DatabaseService.transitionOrchestratorRun(run.id, 'failed', 'Spawn failed');
@@ -380,6 +387,12 @@ async function spawnSubtasks(
   const prepared: PreparedSubtask[] = [];
   const failures: SpawnFailure[] = [];
 
+  const port = hookServer.port;
+  const blackboardUrl =
+    port > 0
+      ? `http://127.0.0.1:${port}/blackboard?orchestratorTaskId=${orchestratorTask.id}`
+      : null;
+
   for (let index = 0; index < plan.subtasks.length; index++) {
     const sub = plan.subtasks[index];
     try {
@@ -389,7 +402,7 @@ async function spawnSubtasks(
 
       const dashDir = path.join(worktreeInfo.path, '.dash');
       if (!fs.existsSync(dashDir)) fs.mkdirSync(dashDir, { recursive: true });
-      fs.writeFileSync(path.join(dashDir, 'prompt.txt'), formatSubtaskPrompt(sub));
+      fs.writeFileSync(path.join(dashDir, 'prompt.txt'), formatSubtaskPrompt(sub, blackboardUrl));
 
       prepared.push({
         index,
@@ -924,8 +937,19 @@ function writePlanState(orchestratorPath: string, state: PlanStateFile): void {
   }
 }
 
-function formatSubtaskPrompt(sub: SubtaskDefinition): string {
+function formatSubtaskPrompt(sub: SubtaskDefinition, blackboardUrl: string | null): string {
   let prompt = `TASK:\n${sub.description.trim()}\n\n`;
+
+  if (blackboardUrl) {
+    prompt += `SHARED BLACKBOARD\n`;
+    prompt += `All subagents share this. Read at startup. Append updates as you work.\n`;
+    prompt += `Read:   curl -s "${blackboardUrl}"\n`;
+    prompt += `Append: curl -s -X POST "${blackboardUrl}" \\\n`;
+    prompt += `        -H "Content-Type: text/plain" \\\n`;
+    prompt += `        -d "## [${sub.title}] $(date +%H:%M)\\nYour update here"\n`;
+    prompt += `Convention: short updates at key milestones, never overwrite.\n\n`;
+  }
+
   if (sub.focusFiles && sub.focusFiles.length > 0) {
     prompt += `FOCUS FILES (primary areas to work in):\n${sub.focusFiles.join('\n')}\n\n`;
   }

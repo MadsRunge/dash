@@ -1,7 +1,10 @@
+import * as fs from 'fs';
 import * as http from 'http';
+import * as path from 'path';
 import { BrowserWindow, Notification } from 'electron';
 import { eq } from 'drizzle-orm';
 import { activityMonitor } from './ActivityMonitor';
+import { DatabaseService } from './DatabaseService';
 import { getDb } from '../db/client';
 import { tasks } from '../db/schema';
 
@@ -130,6 +133,42 @@ class HookServerImpl {
             res.end('ok');
           });
           return;
+        }
+
+        const orchestratorTaskId = url.searchParams.get('orchestratorTaskId');
+
+        if (orchestratorTaskId && url.pathname === '/blackboard') {
+          const task = DatabaseService.getTask(orchestratorTaskId);
+          if (!task) {
+            res.writeHead(400);
+            res.end('Unknown orchestratorTaskId');
+            return;
+          }
+
+          const blackboardPath = path.join(task.path, '.dash', 'blackboard.md');
+
+          if (req.method === 'GET') {
+            let content = '';
+            if (fs.existsSync(blackboardPath)) {
+              content = fs.readFileSync(blackboardPath, 'utf-8');
+            }
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end(content);
+            return;
+          }
+
+          if (req.method === 'POST') {
+            let body = '';
+            req.on('data', (chunk: Buffer) => {
+              body += chunk.toString();
+            });
+            req.on('end', () => {
+              fs.appendFileSync(blackboardPath, '\n' + body);
+              res.writeHead(200);
+              res.end('ok');
+            });
+            return;
+          }
         }
 
         res.writeHead(404);

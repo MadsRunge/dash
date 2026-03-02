@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { ipcMain } from 'electron';
 import { DatabaseService } from '../services/DatabaseService';
 import {
@@ -101,7 +103,10 @@ export function registerOrchestratorIpc(): void {
         }
 
         if (subtask.aiProvider === 'claude') {
-          const prompt = subtask.description?.trim() || `Task: ${subtask.name}`;
+          const promptPath = path.join(subtask.path, '.dash', 'prompt.txt');
+          const prompt = fs.existsSync(promptPath)
+            ? fs.readFileSync(promptPath, 'utf-8')
+            : subtask.description?.trim() || `Task: ${subtask.name}`;
           writeTaskContext(subtask.id, subtask.path, prompt, { issueNumbers: [] }, false);
         }
 

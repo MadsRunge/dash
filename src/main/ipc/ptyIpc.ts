@@ -121,7 +121,13 @@ export function registerPtyIpc(): void {
       },
     ) => {
       try {
-        writeTaskContext(args.taskId, args.cwd, args.prompt, args.meta, args.isOrchestrated);
+        // For orchestrated subtasks, prompt.txt contains the full formatted prompt
+        // (including blackboard URL). Prefer it over the raw description from the renderer.
+        const promptPath = path.join(args.cwd, '.dash', 'prompt.txt');
+        const prompt = fs.existsSync(promptPath)
+          ? fs.readFileSync(promptPath, 'utf-8')
+          : args.prompt;
+        writeTaskContext(args.taskId, args.cwd, prompt, args.meta, args.isOrchestrated);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
