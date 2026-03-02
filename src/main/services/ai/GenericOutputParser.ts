@@ -53,9 +53,10 @@ export class GenericOutputParser implements OutputParser {
       return out;
     }
 
-    // 2) Errors — only flag when not already streaming to avoid false positives
-    // from model output that mentions "error" in its response text.
-    if (this.state === 'booting' || this.state === 'ready' || this.state === 'awaiting_input') {
+    // 2) Errors — only flag during booting (CLI startup failure).
+    // Once the CLI is running, error patterns in output are model-generated prose
+    // ("failed to find the file", etc.) and should not latch the state to error.
+    if (this.state === 'booting') {
       if (this.config.errorPattern.test(text)) {
         this.state = 'error';
         out.push({ type: 'state', state: 'error', reason: 'CLI reported an error' });
