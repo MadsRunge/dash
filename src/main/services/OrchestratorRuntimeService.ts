@@ -180,7 +180,6 @@ class OrchestratorRuntimeService {
     if (!allIdle) return;
 
     this.autoMergeInFlight.add(run.id);
-    DatabaseService.transitionOrchestratorRun(run.id, 'merging');
     DatabaseService.appendOrchestratorEvent({
       runId: run.id,
       orchestratorTaskId: orchestratorTask.id,
@@ -204,7 +203,6 @@ class OrchestratorRuntimeService {
 
       const ok = result.preflight.ok && result.failed === 0 && result.conflicts.length === 0;
       if (ok) {
-        DatabaseService.transitionOrchestratorRun(run.id, 'done');
         DatabaseService.appendOrchestratorEvent({
           runId: run.id,
           orchestratorTaskId: orchestratorTask.id,
@@ -213,7 +211,6 @@ class OrchestratorRuntimeService {
           payload: result,
         });
       } else {
-        DatabaseService.transitionOrchestratorRun(run.id, 'failed', 'Auto merge failed');
         DatabaseService.appendOrchestratorEvent({
           runId: run.id,
           orchestratorTaskId: orchestratorTask.id,
@@ -225,7 +222,6 @@ class OrchestratorRuntimeService {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      DatabaseService.transitionOrchestratorRun(run.id, 'failed', message);
       DatabaseService.appendOrchestratorEvent({
         runId: run.id,
         orchestratorTaskId: orchestratorTask.id,
@@ -242,12 +238,6 @@ class OrchestratorRuntimeService {
     startWatching(orchestratorTask, project, (subtasks) => {
       const run = ensureActiveRun(orchestratorTask);
       DatabaseService.transitionOrchestratorRun(run.id, 'running');
-      DatabaseService.appendOrchestratorEvent({
-        runId: run.id,
-        orchestratorTaskId: orchestratorTask.id,
-        type: 'subtasks.spawned',
-        message: `Spawned ${subtasks.length} subtasks`,
-      });
 
       if (this.sender && !this.sender.isDestroyed()) {
         this.sender.send('orchestrator:subtasksSpawned', {

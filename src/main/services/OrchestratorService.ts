@@ -98,6 +98,9 @@ export interface OrchestratorStatusFile {
 // Active watchers: orchestratorTaskId -> FSWatcher
 const watchers = new Map<string, fs.FSWatcher>();
 
+// Concurrent guard: prevent duplicate processPlanFile calls for the same task
+const processingTasks = new Set<string>();
+
 const worktreeService = new WorktreeService();
 
 function ensureActiveRun(orchestratorTask: Task): OrchestratorRun {
@@ -214,12 +217,18 @@ async function processPlanFile(
   onSubtasksSpawned: (subtasks: Task[]) => void,
   options?: { force?: boolean },
 ): Promise<void> {
+  if (processingTasks.has(orchestratorTask.id)) return;
+  processingTasks.add(orchestratorTask.id);
+
   const run = ensureActiveRun(orchestratorTask);
   try {
     const lockedProvider = normalizeProvider(orchestratorTask.aiProvider, 'claude');
     const appSettings = getAppSettings();
 
-    DatabaseService.transitionOrchestratorRun(run.id, 'planned');
+    // Fix 6: only reset to 'planned' if run hasn't progressed past planning
+    if (run.state === 'planned' || run.state === 'failed') {
+      DatabaseService.transitionOrchestratorRun(run.id, 'planned');
+    }
     const content = fs.readFileSync(planPath, 'utf-8');
     const planHash = hashPlanContent(content);
     const existing = DatabaseService.getSubtasks(orchestratorTask.id);
@@ -358,6 +367,8 @@ async function processPlanFile(
       'Unable to parse .dash/subtasks.json',
     );
     logRunEvent(run.id, orchestratorTask.id, 'plan.parse_failed', message, { level: 'error' });
+  } finally {
+    processingTasks.delete(orchestratorTask.id);
   }
 }
 
@@ -595,7 +606,12 @@ export function updateStatusFile(
       updatedAt: new Date().toISOString(),
     };
 
-    const mergePayload = merge ?? (previous.merge as MergeExecutionResult | undefined);
+    const terminalStates = new Set(['merging', 'done', 'failed']);
+    const mergePayload =
+      merge ??
+      (run && terminalStates.has(run.state)
+        ? (previous.merge as MergeExecutionResult | undefined)
+        : undefined);
     if (mergePayload) payload.merge = mergePayload;
 
     const runPayload = run ?? (previous.run as { id: string; state: string } | undefined);

@@ -18,6 +18,7 @@ import { RemoteControlModal } from './components/RemoteControlModal';
 import { SettingsModal } from './components/SettingsModal';
 import { KanbanBoard } from './components/KanbanBoard';
 import { ToastContainer } from './components/Toast';
+import { toast } from 'sonner';
 import type {
   AppSettings,
   Project,
@@ -377,7 +378,7 @@ export function App() {
       refresh().catch(() => {
         // Best effort
       });
-    }, 2500);
+    }, 1000);
 
     return () => {
       cancelled = true;
@@ -912,6 +913,8 @@ export function App() {
           ...prev,
           [orchestratorTaskId]: res.data?.conflicts ?? [],
         }));
+      } else {
+        toast.error(res.error ?? 'Merge failed');
       }
 
       const projectId = Object.entries(tasksByProject).find(([, tasks]) =>

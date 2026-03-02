@@ -109,7 +109,7 @@ export function OrchestratorPanel({
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded border capitalize ${runStateClass(runState)}`}
           >
-            {runState ?? 'running'}
+            {runState ?? 'idle'}
           </span>
         </div>
 
@@ -126,6 +126,15 @@ export function OrchestratorPanel({
             onClick={() => onMerge(orchestratorTask.id)}
             disabled={!allIdle || isMerging}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-border/60 text-foreground/80 hover:bg-accent/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title={
+              isMerging
+                ? 'Merging in progress...'
+                : !allIdle && subtasks.some((t) => taskActivity[t.id] === 'error')
+                  ? 'Some subtasks have errors - retry or cancel them first'
+                  : !allIdle
+                    ? 'Waiting for all subtasks to finish'
+                    : undefined
+            }
           >
             {isMerging ? (
               <Loader2 size={12} strokeWidth={1.8} className="animate-spin" />
@@ -178,13 +187,15 @@ export function OrchestratorPanel({
 
               <button
                 onClick={() => onRetrySubtask?.(orchestratorTask.id, task.id)}
-                className="text-[10px] px-1.5 py-1 rounded border border-border/60 text-foreground/70 hover:bg-accent/70"
+                disabled={state === 'streaming' || state === 'busy' || state === 'booting'}
+                className="text-[10px] px-1.5 py-1 rounded border border-border/60 text-foreground/70 hover:bg-accent/70 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Retry
               </button>
               <button
                 onClick={() => onCancelSubtask?.(orchestratorTask.id, task.id)}
-                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-1 rounded border border-border/60 text-foreground/60 hover:bg-accent/70"
+                disabled={state === undefined || isIdleLike(state)}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-1 rounded border border-border/60 text-foreground/60 hover:bg-accent/70 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Square size={9} strokeWidth={2} />
                 <span>Cancel</span>
