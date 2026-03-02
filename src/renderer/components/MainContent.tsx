@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { TerminalPane } from './TerminalPane';
-import { Terminal, FolderOpen, GitBranch, Globe, GitPullRequest, PauseCircle } from 'lucide-react';
+import {
+  Terminal,
+  FolderOpen,
+  GitBranch,
+  Globe,
+  GitPullRequest,
+  PauseCircle,
+  Copy,
+  CheckCheck,
+} from 'lucide-react';
 import { CreatePRModal } from './CreatePRModal';
 import { OrchestratorPanel } from './OrchestratorPanel';
 import type { Project, Task, RemoteControlState, ActivityState } from '../../shared/types';
@@ -85,6 +94,7 @@ export function MainContent({
   const [showCreatePR, setShowCreatePR] = useState(false);
   const [ghAvailable, setGhAvailable] = useState(false);
   const [isAhead, setIsAhead] = useState(false);
+  const [branchCopied, setBranchCopied] = useState(false);
 
   useEffect(() => {
     async function checkEligibility() {
@@ -107,6 +117,13 @@ export function MainContent({
     const interval = setInterval(checkEligibility, 30000);
     return () => clearInterval(interval);
   }, [activeTask?.id, activeProject?.id, activeTask?.path]);
+
+  useEffect(() => {
+    if (!branchCopied) return;
+
+    const timeout = setTimeout(() => setBranchCopied(false), 1500);
+    return () => clearTimeout(timeout);
+  }, [branchCopied]);
 
   if (!activeProject) {
     return (
@@ -151,6 +168,15 @@ export function MainContent({
 
   const activeSubtasks = tasks.filter((task) => task.orchestratorTaskId === activeTask.id);
   const isOrchestratorTask = activeSubtasks.length > 0;
+
+  const handleCopyBranch = async () => {
+    await window.electronAPI.copyToClipboard(activeTask.branch);
+    setBranchCopied(true);
+  };
+
+  const handleShowInFinder = () => {
+    window.electronAPI.showInFinder(activeTask.path);
+  };
 
   const taskHeader = (
     <div
@@ -209,6 +235,26 @@ export function MainContent({
           <div className="flex items-center gap-1.5 text-foreground/60">
             <GitBranch size={11} strokeWidth={2} />
             <span className="text-[11px] font-mono">{activeTask.branch}</span>
+            <div className="ml-0.5 flex items-center gap-0.5">
+              <button
+                onClick={handleCopyBranch}
+                className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/60 transition-colors"
+                title={branchCopied ? 'Copied' : 'Copy branch'}
+              >
+                {branchCopied ? (
+                  <CheckCheck size={14} strokeWidth={1.8} />
+                ) : (
+                  <Copy size={14} strokeWidth={1.8} />
+                )}
+              </button>
+              <button
+                onClick={handleShowInFinder}
+                className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent/60 transition-colors"
+                title="Open in Finder"
+              >
+                <FolderOpen size={14} strokeWidth={1.8} />
+              </button>
+            </div>
           </div>
           {activeTask.linkedIssues && activeTask.linkedIssues.length > 0 && (
             <div className="flex items-center gap-1">

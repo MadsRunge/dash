@@ -29,6 +29,8 @@ export interface ElectronAPI {
   // Dialogs
   showOpenDialog: () => Promise<IpcResponse<string[]>>;
   openExternal: (url: string) => Promise<void>;
+  copyToClipboard: (text: string) => Promise<void>;
+  showInFinder: (folderPath: string) => Promise<void>;
   openInEditor: (args: {
     cwd: string;
     filePath: string;

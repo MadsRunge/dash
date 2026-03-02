@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell, BrowserWindow, Notification } from 'electron';
+import { ipcMain, dialog, app, shell, clipboard, BrowserWindow, Notification } from 'electron';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
@@ -64,6 +64,14 @@ export function registerAppIpc(): void {
 
   ipcMain.handle('app:openExternal', async (_event, url: string) => {
     await shell.openExternal(url);
+  });
+
+  ipcMain.handle('app:copyToClipboard', (_event, text: string) => {
+    clipboard.writeText(text);
+  });
+
+  ipcMain.handle('app:showInFinder', (_event, folderPath: string) => {
+    shell.showItemInFolder(folderPath);
   });
 
   ipcMain.handle('app:showOpenDialog', async () => {
