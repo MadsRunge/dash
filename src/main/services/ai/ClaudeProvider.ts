@@ -69,7 +69,31 @@ export class ClaudeProvider implements AiProvider {
       // This avoids granting broad unrestricted local access.
       args.push('--permission-mode', 'acceptEdits');
     }
+    // On a fresh start (not resuming), deliver the task prompt as the initial
+    // message. A positional prompt arg starts an interactive session and
+    // submits it as the first user turn, so Claude begins the task immediately.
+    // On resume the prompt is already in the conversation history.
+    if (!options.resume) {
+      const prompt = this.readPrompt(options.cwd);
+      if (prompt) {
+        args.push(prompt);
+      }
+    }
     return args;
+  }
+
+  private readPrompt(cwd: string): string | null {
+    const contextPath = path.join(cwd, '.claude', 'task-context.json');
+    try {
+      if (fs.existsSync(contextPath)) {
+        const parsed = JSON.parse(fs.readFileSync(contextPath, 'utf-8'));
+        const ctx = parsed?.hookSpecificOutput?.additionalContext;
+        return typeof ctx === 'string' && ctx.trim() ? ctx : null;
+      }
+    } catch {
+      // Best effort
+    }
+    return null;
   }
 
   getEnv(options: SpawnOptions): Record<string, string> {
@@ -82,6 +106,15 @@ export class ClaudeProvider implements AiProvider {
       PATH: process.env.PATH || '',
       COLORFGBG: (options.isDark ?? true) ? '15;0' : '0;15',
     };
+
+    // The hook commands in settings.local.json reference ${port} and ${ptyId};
+    // these resolve as env vars at hook runtime. Without them the curl hooks
+    // hit an invalid URL and fail with a visible "hook error" on every event.
+    const port = hookServer.port;
+    if (port) {
+      env.port = String(port);
+      env.ptyId = options.id;
+    }
 
     const authVars = [
       'ANTHROPIC_API_KEY',
@@ -160,7 +193,7 @@ export class ClaudeProvider implements AiProvider {
           hooks: [
             {
               type: 'command',
-              command: `curl -s --connect-timeout 2 http://127.0.0.1:\${port}/hook/stop?ptyId=\${ptyId}`,
+              command: `curl -s --connect-timeout 2 http://127.0.0.1:\${port}/hook/stop?ptyId=\${ptyId} || true`,
             },
           ],
         },
@@ -170,7 +203,7 @@ export class ClaudeProvider implements AiProvider {
           hooks: [
             {
               type: 'command',
-              command: `curl -s --connect-timeout 2 http://127.0.0.1:\${port}/hook/busy?ptyId=\${ptyId}`,
+              command: `curl -s --connect-timeout 2 http://127.0.0.1:\${port}/hook/busy?ptyId=\${ptyId} || true`,
             },
           ],
         },
@@ -181,7 +214,7 @@ export class ClaudeProvider implements AiProvider {
           hooks: [
             {
               type: 'command',
-              command: `curl -s --connect-timeout 2 -X POST -H "Content-Type: application/json" -d @- http://127.0.0.1:\${port}/hook/notification?ptyId=\${ptyId}`,
+              command: `curl -s --connect-timeout 2 -X POST -H "Content-Type: application/json" -d @- http://127.0.0.1:\${port}/hook/notification?ptyId=\${ptyId} || true`,
             },
           ],
         },
@@ -190,27 +223,12 @@ export class ClaudeProvider implements AiProvider {
           hooks: [
             {
               type: 'command',
-              command: `curl -s --connect-timeout 2 -X POST -H "Content-Type: application/json" -d @- http://127.0.0.1:\${port}/hook/notification?ptyId=\${ptyId}`,
+              command: `curl -s --connect-timeout 2 -X POST -H "Content-Type: application/json" -d @- http://127.0.0.1:\${port}/hook/notification?ptyId=\${ptyId} || true`,
             },
           ],
         },
       ],
     };
-
-    const contextPath = path.join(claudeDir, 'task-context.json');
-    if (fs.existsSync(contextPath)) {
-      hookSettings.SessionStart = [
-        {
-          matcher: 'startup',
-          hooks: [
-            {
-              type: 'command',
-              command: `cat "\${contextPath}"`,
-            },
-          ],
-        },
-      ];
-    }
 
     try {
       let existing: Record<string, unknown> = {};
@@ -222,14 +240,20 @@ export class ClaudeProvider implements AiProvider {
         }
       }
 
+      const mergedHooks: Record<string, unknown> = {
+        ...(existing.hooks && typeof existing.hooks === 'object'
+          ? (existing.hooks as Record<string, unknown>)
+          : {}),
+        ...hookSettings,
+      };
+      // The task prompt is now delivered as the initial CLI arg, so strip any
+      // stale SessionStart hook previously written by Dash to avoid injecting
+      // the context a second time.
+      delete mergedHooks.SessionStart;
+
       const merged: Record<string, unknown> = {
         ...existing,
-        hooks: {
-          ...(existing.hooks && typeof existing.hooks === 'object'
-            ? (existing.hooks as Record<string, unknown>)
-            : {}),
-          ...hookSettings,
-        },
+        hooks: mergedHooks,
       };
 
       const effectiveAttribution =
